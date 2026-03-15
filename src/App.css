@@ -3691,6 +3691,333 @@ body.dark .comparison-controls {
     }
 }
 
+/* ===== Analytics Comparison Page — Selection Panel & CPC Cards ===== */
+
+.comparison-selection-panel {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: start;
+    margin-bottom: 32px;
+}
+
+.comparison-player-card.comparison-side-1,
+.comparison-player-card.comparison-side-2 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 20px;
+    border-radius: 18px;
+    border: 1px solid var(--border-color);
+    background: linear-gradient(135deg, var(--card-bg), var(--body-color));
+    box-shadow: var(--shadow-md);
+    min-height: 380px;
+}
+
+.comparison-side-1 { border-color: rgba(220, 38, 38, 0.35); }
+.comparison-side-2 { border-color: rgba(5, 150, 105, 0.35); }
+
+.cpc-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 14px;
+}
+.comparison-side-1 .cpc-badge { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
+.comparison-side-2 .cpc-badge { background: rgba(5, 150, 105, 0.15); color: #059669; }
+
+.cpc-photo-wrap {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 3px solid var(--border-color);
+    background: var(--body-color);
+    flex-shrink: 0;
+}
+.comparison-side-1 .cpc-photo-wrap { border-color: rgba(220, 38, 38, 0.5); }
+.comparison-side-2 .cpc-photo-wrap { border-color: rgba(5, 150, 105, 0.5); }
+
+.cpc-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cpc-photo-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 42px;
+    color: var(--text-muted);
+}
+
+.cpc-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-color);
+    text-align: center;
+    margin-bottom: 6px;
+    min-height: 22px;
+}
+
+.cpc-placeholder-text {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 14px;
+}
+
+.cpc-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.cpc-position {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(220, 38, 38, 0.12);
+    color: #dc2626;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+.comparison-side-2 .cpc-position { background: rgba(5, 150, 105, 0.12); color: #059669; }
+
+.cpc-team {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.cpc-selectors {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.cpc-selector-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cpc-selector-row label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.cpc-selector-row select {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--body-color);
+    color: var(--text-color);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.cpc-selector-row select:focus { outline: none; border-color: var(--accent-color, #dc2626); }
+.cpc-selector-row select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cpc-loading {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 2px;
+}
+
+/* VS Divider */
+.comparison-vs-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 80px;
+    gap: 10px;
+}
+
+.vs-ring {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #dc2626, #7c3aed);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 900;
+    color: #fff;
+    letter-spacing: 0.04em;
+    box-shadow: 0 4px 18px rgba(220, 38, 38, 0.4);
+    flex-shrink: 0;
+}
+
+.vs-ready {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* Insight strip inner elements */
+.insight-icon {
+    font-size: 20px;
+    color: var(--accent-color, #dc2626);
+}
+
+.insight-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.insight-values {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.insight-val {
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--text-strong, var(--text-color));
+}
+
+.insight-val.winner { color: #dc2626; }
+.comparison-winner-right .insight-val.winner { color: #059669; }
+
+.insight-sep {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.insight-badge {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* Summary section header */
+.summary-header-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.summary-player-col {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.summary-col-2 { justify-content: flex-end; }
+
+.summary-player-photo {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.vs-badge {
+    font-size: 13px;
+    font-weight: 900;
+    color: #fff;
+    background: linear-gradient(135deg, #dc2626, #7c3aed);
+    border-radius: 50%;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Empty state */
+.comparison-empty-state {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--text-muted);
+}
+
+.ces-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    color: var(--border-color);
+    display: block;
+}
+
+.comparison-empty-state h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-color);
+    margin-bottom: 8px;
+}
+
+.comparison-empty-state p {
+    font-size: 14px;
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+/* Dark mode overrides for new CPC classes */
+body.dark .comparison-player-card.comparison-side-1,
+body.dark .comparison-player-card.comparison-side-2 {
+    background: linear-gradient(135deg, rgba(31, 35, 43, 0.95), rgba(21, 23, 26, 0.95));
+}
+
+body.dark .cpc-selector-row select {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Responsive */
+@media (max-width: 860px) {
+    .comparison-selection-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .comparison-vs-divider {
+        flex-direction: row;
+        padding-top: 0;
+        justify-content: center;
+    }
+}
+
+/* ===== END Analytics Comparison Page ===== */
+
 .stats-comparison {
     display: grid;
     gap: 16px;
