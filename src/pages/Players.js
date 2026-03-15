@@ -1,33 +1,93 @@
 import { useEffect, useState } from "react";
-import { fetchPlayers, fetchPlayerDetails } from "../api/apiFootball";
+import { fetchPlayers, fetchPlayerDetails, fetchTeams } from "../api/apiFootball";
+import Topbar from "../components/Topbar";
+
+const LEAGUE_OPTIONS = [
+  "English Premier League",
+  "Spanish La Liga",
+  "Italian Serie A",
+  "German Bundesliga",
+  "French Ligue 1",
+];
+
+function getPlayerAge(dateBorn) {
+  if (!dateBorn) return "N/A";
+  return new Date().getFullYear() - new Date(dateBorn).getFullYear();
+}
+
+function normalisePlayers(players) {
+  return (players || [])
+    .filter(
+      (player) =>
+        player &&
+        player.strPlayer &&
+        player.strPosition &&
+        player.strStatus !== "Coaching" &&
+        !/coach/i.test(player.strPosition)
+    )
+    .sort((left, right) => (left.strPlayer || "").localeCompare(right.strPlayer || ""));
+}
 
 function Players() {
   const [players, setPlayers] = useState([]);
-  const [selectedTeam, setSelectedTeam] = useState("Barcelona");
+  const [teams, setTeams] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState(LEAGUE_OPTIONS[0]);
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerDetails, setPlayerDetails] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-
-  const popularTeams = [
-    "Barcelona",
-    "Real Madrid",
-    "Manchester United",
-    "Manchester City",
-    "Liverpool",
-    "Chelsea",
-    "Arsenal",
-    "Bayern Munich",
-    "Paris Saint-Germain",
-    "Juventus"
-  ];
+  const [lastUpdated, setLastUpdated] = useState("");
 
   useEffect(() => {
+    async function loadTeams() {
+      try {
+        setLoading(true);
+        const data = await fetchTeams(selectedLeague);
+        const sortedTeams = (data || []).sort((left, right) =>
+          (left.strTeam || "").localeCompare(right.strTeam || "")
+        );
+
+        setTeams(sortedTeams);
+        setSelectedTeam((currentTeam) => {
+          if (sortedTeams.some((team) => team.strTeam === currentTeam)) {
+            return currentTeam;
+          }
+          return sortedTeams[0]?.strTeam || "";
+        });
+      } catch (error) {
+        console.error("Error loading teams:", error);
+        setTeams([]);
+        setSelectedTeam("");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadTeams();
+  }, [selectedLeague]);
+
+  useEffect(() => {
+    if (!selectedTeam) {
+      setPlayers([]);
+      return;
+    }
+
     async function loadPlayers() {
       try {
         setLoading(true);
         const data = await fetchPlayers(selectedTeam);
-        setPlayers(data || []);
+        setPlayers(normalisePlayers(data));
+        setLastUpdated(
+          new Date().toLocaleString("en-ZA", {
+            timeZone: "Africa/Johannesburg",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        );
       } catch (error) {
         console.error("Error loading players:", error);
         setPlayers([]);
@@ -35,11 +95,13 @@ function Players() {
         setLoading(false);
       }
     }
+
     loadPlayers();
   }, [selectedTeam]);
 
   const handlePlayerClick = async (player) => {
     setSelectedPlayer(player);
+    setPlayerDetails(null);
     try {
       const details = await fetchPlayerDetails(player.idPlayer);
       setPlayerDetails(details);
@@ -57,16 +119,40 @@ function Players() {
     (player.strPlayer || player.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const seasonWindowLabel = "Coverage: 2023 to present";
+
   return (
     <div className="home">
-      <div className="page-container">
+      <Topbar />
+      <div className="dashboard-shell page-flow-shell">
+      <div className="page-container page-flow-container">
         <div className="page-header">
-          <h1 className="page-title">Players</h1>
-          <p className="page-subtitle">Explore player statistics and performance data</p>
+          <div className="page-title-row">
+            <span className="page-title-icon">
+              <i className="bx bx-user"></i>
+            </span>
+            <h1 className="page-title">Players</h1>
+          </div>
+          <p className="page-subtitle">Live current squad and player profile data sourced from major leagues, with {seasonWindowLabel.toLowerCase()}.</p>
         </div>
 
-        {/* Team Selector and Search */}
+        <div className="dashboard-panel players-controls-panel">
         <div className="players-controls">
+          <div className="control-group">
+            <label>Select League:</label>
+            <select
+              value={selectedLeague}
+              onChange={(e) => setSelectedLeague(e.target.value)}
+              className="team-select"
+            >
+              {LEAGUE_OPTIONS.map((league) => (
+                <option key={league} value={league}>
+                  {league}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="control-group">
             <label>Select Team:</label>
             <select
@@ -74,9 +160,9 @@ function Players() {
               onChange={(e) => setSelectedTeam(e.target.value)}
               className="team-select"
             >
-              {popularTeams.map(team => (
-                <option key={team} value={team}>
-                  {team}
+              {teams.map((team) => (
+                <option key={team.idTeam} value={team.strTeam}>
+                  {team.strTeam}
                 </option>
               ))}
             </select>
@@ -92,52 +178,67 @@ function Players() {
               className="player-search"
             />
           </div>
+
+          <div className="control-group">
+            <label>Season Window</label>
+            <div className="team-select players-meta-pill">{seasonWindowLabel}</div>
+          </div>
+
+          <div className="control-group">
+            <label>Last Refresh</label>
+            <div className="team-select players-meta-pill">{lastUpdated || "Loading..."}</div>
+          </div>
+        </div>
         </div>
 
         {loading ? (
-          <div className="loading-container">
+          <div className="dashboard-panel loading-container">
             <div className="loading-spinner"></div>
-            <p>Loading players from {selectedTeam}...</p>
+            <p>Loading players from {selectedTeam || selectedLeague}...</p>
           </div>
         ) : (
+          <div className="dashboard-panel players-list-panel">
           <div className="players-list">
             {displayedPlayers.length > 0 ? (
-              displayedPlayers.slice(0, 24).map(player => (
-                <div
-                  key={player.idPlayer || player.id}
-                  className="player-item"
-                  onClick={() => handlePlayerClick(player)}
-                >
-                  <div className="player-photo">
-                    <img
-                      src={player.strThumb || player.strCutout || `https://via.placeholder.com/120x120?text=${player.strPlayer?.charAt(0) || 'P'}`}
-                      alt={player.strPlayer || player.name}
-                      onError={(e) => {
-                        e.target.src = `https://via.placeholder.com/120x120?text=${(player.strPlayer || player.name)?.charAt(0) || 'P'}`;
-                      }}
-                    />
-                  </div>
-                  <div className="player-info">
-                    <h3>{player.strPlayer || player.name}</h3>
-                    <p className="player-position">{player.strPosition || player.position || 'Unknown'}</p>
-                    <p className="player-nationality">{player.strNationality || player.nationality || 'Unknown'}</p>
-                    <div className="player-stats">
-                      <span className="stat-item">
-                        <strong>Age:</strong> {player.dateBorn ? new Date().getFullYear() - new Date(player.dateBorn).getFullYear() : 'N/A'}
-                      </span>
-                      <span className="stat-item">
-                        <strong>Height:</strong> {player.strHeight || 'N/A'}
-                      </span>
+              displayedPlayers.slice(0, 24).map((player) => {
+                const playerImage =
+                  player.strCutout ||
+                  player.strThumb ||
+                  `/assets/img/User.jpg`;
+
+                return (
+                  <div
+                    key={player.idPlayer || player.id}
+                    className="player-item player-overlay-card"
+                    style={{ backgroundImage: `url(${playerImage})` }}
+                    onClick={() => handlePlayerClick(player)}
+                  >
+                    <div className="player-overlay-content">
+                      <h3 className="player-overlay-name">{player.strPlayer || player.name}</h3>
+                      <p className="player-overlay-position">{player.strPosition || player.position || 'Unknown'}</p>
+                      <p className="player-overlay-meta">{player.strNationality || player.nationality || 'Unknown'} · {player.strTeam || selectedTeam || 'Unknown Club'}</p>
+                      <div className="player-overlay-stats">
+                        <span className="stat-item">
+                          <strong>Age:</strong> {getPlayerAge(player.dateBorn)}
+                        </span>
+                        <span className="stat-item">
+                          <strong>Height:</strong> {player.strHeight || 'N/A'}
+                        </span>
+                        <span className="stat-item">
+                          <strong>Status:</strong> {player.strStatus || 'Active'}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="no-players">
                 <p>{searchTerm ? `No players found for "${searchTerm}"` : `No players found for ${selectedTeam}`}</p>
                 <p>{searchTerm ? 'Try a different search term.' : 'Try selecting a different team.'}</p>
               </div>
             )}
+          </div>
           </div>
         )}
 
@@ -148,7 +249,7 @@ function Players() {
               <div className="modal-header">
                 <div className="modal-player-info">
                   <img
-                    src={selectedPlayer.strThumb || selectedPlayer.strCutout || `https://via.placeholder.com/150x150?text=${selectedPlayer.strPlayer?.charAt(0) || 'P'}`}
+                    src={playerDetails?.strCutout || playerDetails?.strThumb || selectedPlayer.strThumb || selectedPlayer.strCutout || `https://via.placeholder.com/150x150?text=${selectedPlayer.strPlayer?.charAt(0) || 'P'}`}
                     alt={selectedPlayer.strPlayer || selectedPlayer.name}
                     className="modal-player-photo"
                   />
@@ -174,7 +275,7 @@ function Players() {
                           <strong>Birth Date:</strong> {playerDetails.dateBorn || 'N/A'}
                         </div>
                         <div className="detail-item">
-                          <strong>Age:</strong> {playerDetails.dateBorn ? new Date().getFullYear() - new Date(playerDetails.dateBorn).getFullYear() : 'N/A'}
+                          <strong>Age:</strong> {getPlayerAge(playerDetails.dateBorn)}
                         </div>
                         <div className="detail-item">
                           <strong>Nationality:</strong> {playerDetails.strNationality || 'N/A'}
@@ -184,6 +285,9 @@ function Players() {
                         </div>
                         <div className="detail-item">
                           <strong>Weight:</strong> {playerDetails.strWeight || 'N/A'}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Birth Place:</strong> {playerDetails.strBirthLocation || 'N/A'}
                         </div>
                       </div>
                     </div>
@@ -196,6 +300,12 @@ function Players() {
                         </div>
                         <div className="detail-item">
                           <strong>Current Team:</strong> {playerDetails.strTeam || 'N/A'}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Preferred Side:</strong> {playerDetails.strSide || 'N/A'}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Status:</strong> {playerDetails.strStatus || 'N/A'}
                         </div>
                         <div className="detail-item">
                           <strong>Sport:</strong> {playerDetails.strSport || 'Football'}
@@ -228,6 +338,7 @@ function Players() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

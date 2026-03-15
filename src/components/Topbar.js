@@ -5,22 +5,24 @@ function Topbar() {
   const location = useLocation();
   const [currentTime, setCurrentTime] = useState("");
 
-  const getPageTitle = () => {
+  const getPageMeta = () => {
     switch (location.pathname) {
       case "/":
-        return "Dashboard";
+        return { title: "Dashboard", icon: "bx-home" };
       case "/players":
-        return "Players";
+        return { title: "Players", icon: "bx-user" };
       case "/teams":
-        return "Teams";
+        return { title: "Teams", icon: "bx-group" };
       case "/comparison":
-        return "Player Comparison";
+        return { title: "Player Comparison", icon: "bx-bar-chart-big" };
       case "/timeline":
-        return "Performance Timeline";
+        return { title: "Performance Timeline", icon: "bx-time-five" };
       default:
-        return "Dashboard";
+        return { title: "Dashboard", icon: "bx-home" };
     }
   };
+
+  const pageMeta = getPageMeta();
 
   useEffect(() => {
     const updateTime = () => {
@@ -44,12 +46,17 @@ function Topbar() {
 
   return (
     <div className="topbar">
-      <div className="text">{getPageTitle()}</div>
+      <div className="topbar-title">
+        <span className="topbar-title-icon">
+          <i className={`bx ${pageMeta.icon}`}></i>
+        </span>
+        <div className="text">{pageMeta.title}</div>
+      </div>
 
       <div className="flex items-center gap-4">
-        <i className="bx bx-bell icon" style={{ fontSize: "24px", color: "var(--text-color)", cursor: "pointer" }}></i>
-        <i className="bx bx-cog icon" style={{ fontSize: "24px", color: "var(--text-color)", cursor: "pointer" }}></i>
-        <i className="bx bx-log-out icon" style={{ fontSize: "24px", color: "var(--text-color)", cursor: "pointer" }} title="Logout"></i>
+        <i className="bx bx-bell icon topbar-action-icon"></i>
+        <i className="bx bx-cog icon topbar-action-icon"></i>
+        <i className="bx bx-log-out icon topbar-action-icon" title="Logout"></i>
 
         <div className="user">
           <img src="/assets/img/User.jpg" alt="user" />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchTeams, fetchTeamDetails } from "../api/apiFootball";
+import Topbar from "../components/Topbar";
 
 function Teams() {
   const [teams, setTeams] = useState([]);
@@ -50,13 +51,21 @@ function Teams() {
 
   return (
     <div className="home">
-      <div className="page-container">
+      <Topbar />
+      <div className="dashboard-shell page-flow-shell">
+      <div className="page-container page-flow-container">
         <div className="page-header">
-          <h1 className="page-title">Teams</h1>
+          <div className="page-title-row">
+            <span className="page-title-icon">
+              <i className="bx bx-group"></i>
+            </span>
+            <h1 className="page-title">Teams</h1>
+          </div>
           <p className="page-subtitle">Explore teams from major football leagues worldwide</p>
         </div>
 
         {/* League Selector */}
+        <div className="dashboard-panel league-selector-panel">
         <div className="league-selector">
           <div className="selector-group">
             <label>Select League:</label>
@@ -73,13 +82,15 @@ function Teams() {
             </select>
           </div>
         </div>
+        </div>
 
         {loading ? (
-          <div className="loading-container">
+          <div className="dashboard-panel loading-container">
             <div className="loading-spinner"></div>
             <p>Loading teams from {selectedLeague}...</p>
           </div>
         ) : (
+          <div className="dashboard-panel teams-list-panel">
           <div className="teams-list">
             {teams.length > 0 ? (
               teams.map(team => (
@@ -118,6 +129,7 @@ function Teams() {
                 <p>Try selecting a different league.</p>
               </div>
             )}
+          </div>
           </div>
         )}
 
@@ -189,6 +201,7 @@ function Teams() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

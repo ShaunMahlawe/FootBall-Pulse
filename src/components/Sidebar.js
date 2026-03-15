@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+const NAV_LINKS = [
+  { to: "/", icon: "bx-home", label: "Dashboard" },
+  { to: "/players", icon: "bx-user", label: "Players" },
+  { to: "/teams", icon: "bx-group", label: "Teams" },
+  { to: "/comparison", icon: "bx-git-compare", label: "Comparison" },
+  { to: "/timeline", icon: "bx-time", label: "Timeline" },
+];
+
 function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.body.classList.contains("dark") || false;
   });
+  const [search, setSearch] = useState("");
   const location = useLocation();
 
   useEffect(() => {
@@ -19,6 +28,10 @@ function Sidebar() {
   const toggleTheme = () => {
     setIsDarkMode((prev) => !prev);
   };
+
+  const filteredLinks = NAV_LINKS.filter((link) =>
+    link.label.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <nav className={`sidebar ${isCollapsed ? "close" : ""}`}>
@@ -44,44 +57,27 @@ function Sidebar() {
           <ul className="menu-links">
             <li className="search-box">
               <i className="bx bx-search icon"></i>
-              <input type="search" placeholder="Search..." />
+              <input
+                type="search"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </li>
-            <li className="nav-link">
-              <Link to="/" className={location.pathname === "/" ? "active" : ""}>
-                <i className="bx bx-dashboard icon"></i>
-                <span className="text nav-text">Dashboard</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/players" className={location.pathname === "/players" ? "active" : ""}>
-                <i className="bx bx-user icon"></i>
-                <span className="text nav-text">Players</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/teams" className={location.pathname === "/teams" ? "active" : ""}>
-                <i className="bx bx-group icon"></i>
-                <span className="text nav-text">Teams</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/comparison" className={location.pathname === "/comparison" ? "active" : ""}>
-                <i className="bx bx-bar-chart-big icon"></i>
-                <span className="text nav-text">Comparison</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/timeline" className={location.pathname === "/timeline" ? "active" : ""}>
-                <i className="bx bx-time icon"></i>
-                <span className="text nav-text">Timeline</span>
-              </Link>
-            </li>
+            {filteredLinks.map((link) => (
+              <li key={link.to}>
+                <Link to={link.to} className={location.pathname === link.to ? "active" : ""}>
+                  <i className={`bx ${link.icon} icon`}></i>
+                  <span className="text nav-text">{link.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div className="bottom-content">
-          <li className="nav-link">
-            <button onClick={() => alert("Logout functionality not implemented yet")} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', height: '100%' }}>
+          <li>
+            <button onClick={() => alert("Logout functionality not implemented yet")}>
               <i className="bx bx-log-out icon"></i>
               <span className="text nav-text">Logout</span>
             </button>

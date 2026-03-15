@@ -15,6 +15,7 @@ import {
   Filler
 } from "chart.js";
 import { fetchPlayers } from "../api/apiFootball";
+import Topbar from "../components/Topbar";
 
 ChartJS.register(
   CategoryScale,
@@ -138,14 +139,22 @@ function Analytics() {
   if (loading) {
     return (
       <div className="home">
-        <div className="page-container">
+        <Topbar />
+        <div className="dashboard-shell page-flow-shell">
+        <div className="page-container page-flow-container">
           <div className="page-header">
-            <h1 className="page-title">Player Comparison</h1>
+            <div className="page-title-row">
+              <span className="page-title-icon">
+                <i className="bx bx-git-compare"></i>
+              </span>
+              <h1 className="page-title">Player Comparison</h1>
+            </div>
             <p className="page-subtitle">Loading player data...</p>
           </div>
-          <div style={{ textAlign: 'center', padding: '50px' }}>
+          <div className="dashboard-panel loading-container">
             <div>Loading players from TheSportsDB...</div>
           </div>
+        </div>
         </div>
       </div>
     );
@@ -155,11 +164,22 @@ function Analytics() {
   if (!players || players.length === 0) {
     return (
       <div className="home">
-        <div className="page-container">
+        <Topbar />
+        <div className="dashboard-shell page-flow-shell">
+        <div className="page-container page-flow-container">
           <div className="page-header">
-            <h1 className="page-title">Player Comparison</h1>
+            <div className="page-title-row">
+              <span className="page-title-icon">
+                <i className="bx bx-git-compare"></i>
+              </span>
+              <h1 className="page-title">Player Comparison</h1>
+            </div>
             <p className="page-subtitle">Unable to load player data</p>
           </div>
+          <div className="dashboard-panel dashboard-empty-state">
+            <p>No comparison data is available at the moment.</p>
+          </div>
+        </div>
         </div>
       </div>
     );
@@ -243,13 +263,21 @@ function Analytics() {
 
   return (
     <div className="home">
-      <div className="page-container">
+      <Topbar />
+      <div className="dashboard-shell page-flow-shell">
+      <div className="page-container page-flow-container">
         <div className="page-header">
-          <h1 className="page-title">Player Comparison</h1>
+          <div className="page-title-row">
+            <span className="page-title-icon">
+              <i className="bx bx-git-compare"></i>
+            </span>
+            <h1 className="page-title">Player Comparison</h1>
+          </div>
           <p className="page-subtitle">Compare player performance metrics using multiple visualization types</p>
         </div>
 
         {/* Player Selection */}
+        <div className="dashboard-panel comparison-controls-panel">
         <div className="comparison-controls">
           <div className="player-selectors">
             <div className="selector-group">
@@ -288,8 +316,10 @@ function Analytics() {
             </div>
           </div>
         </div>
+        </div>
 
         {/* Charts Grid */}
+        <div className="dashboard-panel comparison-charts-panel">
         <div className="charts-grid">
           {/* Bar Chart */}
           <div className="chart-card">
@@ -315,8 +345,10 @@ function Analytics() {
             </div>
           </div>
         </div>
+        </div>
 
         {/* Summary Stats */}
+        <div className="dashboard-panel comparison-summary-panel">
         <div className="comparison-summary">
           <div className="summary-card">
             <h3>Comparison Summary</h3>
@@ -350,6 +382,8 @@ function Analytics() {
             </div>
           </div>
         </div>
+        </div>
+      </div>
       </div>
     </div>
   );

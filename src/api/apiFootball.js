@@ -27,7 +27,10 @@ export async function fetchPlayers(teamName, season = 2023) {
     }
 
     const playersData = await playersRes.json();
-    return playersData.player || [];
+    if (Array.isArray(playersData.player)) {
+      return playersData.player;
+    }
+    return playersData.player ? Object.values(playersData.player) : [];
   } catch (error) {
     console.error("Error fetching players:", error);
     return [];
@@ -117,6 +120,22 @@ export async function fetchLeagueTable(leagueId) {
   }
 }
 
+export async function fetchLeagueDetails(leagueId) {
+  try {
+    const res = await fetch(`${BASE_URL}/lookupleague.php?id=${leagueId}`);
+
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.leagues ? data.leagues[0] : null;
+  } catch (error) {
+    console.error("Error fetching league details:", error);
+    return null;
+  }
+}
+
 export async function fetchTeamDetails(teamId) {
   try {
     const res = await fetch(`${BASE_URL}/lookupteam.php?id=${teamId}`);
@@ -129,6 +148,22 @@ export async function fetchTeamDetails(teamId) {
     return data.teams ? data.teams[0] : null;
   } catch (error) {
     console.error("Error fetching team details:", error);
+    return null;
+  }
+}
+
+export async function fetchTeamByName(teamName) {
+  try {
+    const res = await fetch(`${BASE_URL}/searchteams.php?t=${encodeURIComponent(teamName)}`);
+
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.teams ? data.teams[0] : null;
+  } catch (error) {
+    console.error("Error fetching team by name:", error);
     return null;
   }
 }
