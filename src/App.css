@@ -37,6 +37,8 @@
     --dashboard-pill-text: #0f172a;
     --dashboard-card-chip-bg: rgba(15, 23, 42, 0.08);
     --dashboard-card-chip-text: #1f2937;
+    --topbar-bg: #ffffff;
+    --topbar-border: #e5e7eb;
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -167,16 +169,13 @@ h6 {
     gap: 16px;
 }
 
-/* Dark mode */
 body.dark {
     --body-color: #18191A;
     --sidebar-color: #242526;
     --primary-color: #ed1c24;
-    --secondary-color: #34d399;
     --primary-color-light: #3A3B3C;
     --toggle-color: #FFF;
     --text-color: #DDD;
-    --text-muted: #9ca3af;
     --dashboard-bg: #050505;
     --dashboard-accent-a: rgba(220, 38, 38, 0.12);
     --dashboard-accent-b: rgba(15, 118, 110, 0.12);
@@ -190,6 +189,8 @@ body.dark {
     --dashboard-pill-text: #111827;
     --dashboard-card-chip-bg: rgba(255, 255, 255, 0.08);
     --dashboard-card-chip-text: rgba(255, 255, 255, 0.9);
+    --topbar-bg: #1f2022;
+    --topbar-border: #36383c;
 }
 
 /* Sidebar */
@@ -824,7 +825,8 @@ body.dark .home {
 .live-score-panel,
 .favourites-panel,
 .spotlight-panel,
-.latest-matches-panel {
+.latest-matches-panel,
+.dashboard-comparison-panel {
     padding: 18px;
 }
 
@@ -979,6 +981,20 @@ body.dark .home {
     font-size: 14px;
     font-weight: 700;
     color: var(--dashboard-text);
+}
+
+.dashboard-comparison-charts {
+    margin-top: 14px;
+}
+
+.dashboard-comparison-panel .chart-card {
+    min-height: 320px;
+    background: var(--dashboard-soft-bg);
+    border: 1px solid var(--dashboard-border);
+}
+
+.dashboard-mini-chart {
+    height: 240px;
 }
 
 .live-score-value {
@@ -1342,17 +1358,24 @@ body.dark .home {
     margin-top: 12px;
     border: 0;
     border-radius: 999px;
-    min-height: 36px;
-    padding: 0 14px;
+    min-height: 40px;
+    min-width: 150px;
+    padding: 0 16px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    gap: 8px;
+    font-size: 12px;
     letter-spacing: 0.02em;
     font-weight: 700;
     cursor: pointer;
     background: var(--dashboard-pill-bg);
     color: var(--dashboard-pill-text);
+    transition: var(--tran-03);
+}
+
+.dashboard-empty-action:hover {
+    filter: brightness(0.95);
 }
 
 .topbar-action-icon {
@@ -2642,8 +2665,8 @@ body.dark .home {
     align-items: center;
     justify-content: space-between;
     padding: 0 40px;
-    background: var(--card-bg);
-    border-bottom: 1px solid var(--border-color);
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--topbar-border);
     box-shadow: var(--shadow-sm);
 }
 
@@ -2854,49 +2877,176 @@ body.dark .home {
     text-align: center;
 }
 
-.players-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+.players-duel-banner {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 360px;
+    border-radius: 24px;
+    overflow: hidden;
     margin-bottom: 24px;
-    padding: 20px;
-    background: linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%);
-    border-radius: 12px;
-    border: 1px solid var(--border-color);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1f2023;
 }
 
-.player-header-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
+.duel-side {
+    position: relative;
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+    filter: grayscale(0.45);
 }
 
-.summary-player-photo {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 4px solid var(--primary-color);
-    box-shadow: var(--shadow-lg);
+.duel-side::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.72));
 }
 
-.player-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-color);
-    text-align: center;
+.duel-side.left::after,
+.duel-side.right::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: 120px;
+    height: 100%;
+    pointer-events: none;
 }
 
-.vs-badge {
-    background: var(--primary-gradient);
-    color: white;
-    padding: 8px 16px;
-    border-radius: 20px;
+.duel-side.left::after {
+    right: 0;
+    background: linear-gradient(270deg, rgba(31, 32, 35, 0.9), transparent);
+}
+
+.duel-side.right::after {
+    left: 0;
+    background: linear-gradient(90deg, rgba(31, 32, 35, 0.9), transparent);
+}
+
+.duel-player-meta {
+    position: absolute;
+    bottom: 22px;
+    left: 22px;
+    right: 22px;
+    z-index: 3;
+    color: #f8fafc;
+}
+
+.duel-player-meta h4 {
+    margin: 0;
+    font-size: 38px;
+    line-height: 1.05;
     font-weight: 700;
-    font-size: 14px;
-    box-shadow: var(--shadow-md);
+    letter-spacing: 0.01em;
+}
+
+.duel-player-meta p {
+    margin: 6px 0 0;
+    font-size: 26px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.duel-side.right .duel-player-meta {
+    text-align: right;
+}
+
+.duel-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.duel-vs {
+    position: absolute;
+    font-size: 74px;
+    font-weight: 800;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.duel-divider {
+    font-size: 260px;
+    line-height: 1;
+    font-weight: 300;
+    color: #ffffff;
+    opacity: 0.96;
+    transform: translateY(-2px);
+}
+
+.duel-club-badge {
+    position: absolute;
+    top: 20px;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    z-index: 3;
+}
+
+.duel-club-badge img {
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.duel-club-badge i {
+    font-size: 1.5rem;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.duel-side.left .duel-club-badge {
+    left: 24px;
+}
+
+.duel-side.right .duel-club-badge {
+    right: 24px;
+}
+
+@media (max-width: 1100px) {
+    .duel-player-meta h4 {
+        font-size: 28px;
+    }
+
+    .duel-player-meta p {
+        font-size: 20px;
+    }
+
+    .duel-divider {
+        font-size: 200px;
+    }
+
+    .duel-vs {
+        font-size: 58px;
+    }
+}
+
+@media (max-width: 860px) {
+    .players-duel-banner {
+        min-height: 460px;
+        grid-template-columns: 1fr;
+    }
+
+    .duel-side.right .duel-player-meta {
+        text-align: left;
+    }
+
+    .duel-center {
+        display: none;
+    }
 }
 
 .stats-comparison {
@@ -3039,6 +3189,65 @@ body.dark .home {
     box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
 }
 
+.timeline-selection-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.timeline-action-btn {
+    border: 1px solid var(--border-color);
+    background: var(--body-color);
+    color: var(--text-color);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.timeline-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.timeline-player-picker {
+    display: grid;
+    gap: 8px;
+    max-height: 190px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--body-color);
+}
+
+.timeline-player-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-color);
+    font-size: 13px;
+}
+
+.timeline-picker-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.timeline-overlay-options {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.timeline-overlay-option {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--text-color);
+    font-size: 13px;
+}
+
 /* Timeline Chart */
 .timeline-chart-container {
     background: var(--card-bg);
@@ -3058,6 +3267,12 @@ body.dark .home {
 .timeline-chart {
     height: 400px;
     width: 100%;
+}
+
+.timeline-render-meta {
+    margin: 8px 0 18px;
+    color: var(--text-muted);
+    font-size: 13px;
 }
 
 /* Trend Summary */

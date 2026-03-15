@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchPlayers, fetchPlayerDetails, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
+import { getPlayerVisual } from "../utils/playerVisuals";
 
 const LEAGUE_OPTIONS = [
   "English Premier League",
@@ -201,10 +202,10 @@ function Players() {
           <div className="players-list">
             {displayedPlayers.length > 0 ? (
               displayedPlayers.slice(0, 24).map((player) => {
-                const playerImage =
-                  player.strCutout ||
-                  player.strThumb ||
-                  `/assets/img/User.jpg`;
+                const playerImage = getPlayerVisual(player, {
+                  name: player.strPlayer,
+                  team: player.strTeam || selectedTeam,
+                });
 
                 return (
                   <div
@@ -249,7 +250,10 @@ function Players() {
               <div className="modal-header">
                 <div className="modal-player-info">
                   <img
-                    src={playerDetails?.strCutout || playerDetails?.strThumb || selectedPlayer.strThumb || selectedPlayer.strCutout || `https://via.placeholder.com/150x150?text=${selectedPlayer.strPlayer?.charAt(0) || 'P'}`}
+                    src={getPlayerVisual(playerDetails || selectedPlayer, {
+                      name: selectedPlayer.strPlayer,
+                      team: selectedPlayer.strTeam || selectedTeam,
+                    })}
                     alt={selectedPlayer.strPlayer || selectedPlayer.name}
                     className="modal-player-photo"
                   />

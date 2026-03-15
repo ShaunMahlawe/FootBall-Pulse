@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Radar } from "react-chartjs-2";
+import { Bar, PolarArea, Radar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
   RadialLinearScale,
+  ArcElement,
   PointElement,
   LineElement,
   Filler,
@@ -10,7 +14,9 @@ import {
   Legend,
 } from "chart.js";
 import Topbar from "../components/Topbar";
+import { getPlayerVisual } from "../utils/playerVisuals";
 import {
+  clearApiCache,
   fetchLeagueDetails,
   fetchPlayers,
   fetchPlayerDetails,
@@ -18,11 +24,23 @@ import {
   fetchLiveMatches,
   fetchUpcomingMatches,
   fetchMatchDetails,
+  searchPlayers,
   fetchTeamDetails,
   fetchTeamByName,
 } from "../api/apiFootball";
 
-ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  RadialLinearScale,
+  ArcElement,
+  PointElement,
+  LineElement,
+  Filler,
+  Tooltip,
+  Legend
+);
 
 const LEAGUE_OPTIONS = [
   { id: 4328, name: "English Premier League", country: "England", spotlightTeam: "Arsenal", label: "Premier League" },
@@ -32,20 +50,21 @@ const LEAGUE_OPTIONS = [
   { id: 4334, name: "French Ligue 1", country: "France", spotlightTeam: "Paris Saint-Germain", label: "Ligue 1" },
 ];
 
-const FALLBACK_PLAYER = {
-  name: "Henrikh Mkhitaryan",
-  position: "Midfielder",
-  team: "Inter",
-  image: "/assets/img/User.jpg",
-  nationality: "Armenia",
+const FALLBACK_PLAYER_QUERY = "Henrikh Mkhitaryan";
+
+const EMPTY_PLAYER = {
+  name: "Loading player",
+  position: "Unknown",
+  team: "Unknown",
+  image: "",
+  nationality: "Unknown",
   preferredSide: "Unknown",
-  height: "1.77 m",
+  height: "Unknown",
   weight: "Unknown",
-  birthLocation: "Yerevan, Armenia",
-  dateBorn: "1989-01-21",
-  status: "Active",
-  description:
-    "Experienced attacking midfielder known for smart positioning, combination play, and carrying the ball through midfield.",
+  birthLocation: "Unknown",
+  dateBorn: "Unknown",
+  status: "Unknown",
+  description: "Player data is loading from the API.",
 };
 
 function pickSpotlightCandidate(players) {
@@ -67,14 +86,14 @@ function pickSpotlightCandidate(players) {
 }
 
 function shortDescription(text) {
-  if (!text) return FALLBACK_PLAYER.description;
+  if (!text) return EMPTY_PLAYER.description;
   const clean = text.replace(/\s+/g, " ").trim();
   const firstSentence = clean.split(/(?<=[.!?])\s+/)[0];
   return firstSentence || clean;
 }
 
 function buildPerformanceProfile(player) {
-  const position = player?.strPosition || player?.position || FALLBACK_PLAYER.position;
+  const position = player?.strPosition || player?.position || EMPTY_PLAYER.position;
   const side = player?.strSide || player?.preferredSide || "";
 
   const presets = {
@@ -103,15 +122,14 @@ function buildPerformanceProfile(player) {
 }
 
 function buildSpotlightPlayer(player) {
-  const source = player || FALLBACK_PLAYER;
+  const source = player || EMPTY_PLAYER;
 
   return {
     id: source.idPlayer || null,
-    name: source.strPlayer || source.name || FALLBACK_PLAYER.name,
-    position: source.strPosition || source.position || FALLBACK_PLAYER.position,
-    team: source.strTeam || source.team || FALLBACK_PLAYER.team,
-    image:
-      source.strCutout || source.strThumb || source.strRender || source.image || FALLBACK_PLAYER.image,
+    name: source.strPlayer || source.name || EMPTY_PLAYER.name,
+    position: source.strPosition || source.position || EMPTY_PLAYER.position,
+    team: source.strTeam || source.team || EMPTY_PLAYER.team,
+    image: getPlayerVisual(source, EMPTY_PLAYER),
     nationality: source.strNationality || source.nationality || "Unknown",
     preferredSide: source.strSide || source.preferredSide || "Unknown",
     height: source.strHeight || source.height || "Unknown",
@@ -122,6 +140,29 @@ function buildSpotlightPlayer(player) {
     description: shortDescription(source.strDescriptionEN || source.description),
     performanceProfile: buildPerformanceProfile(source),
   };
+}
+
+async function fetchApiFallbackPlayer() {
+  try {
+    const results = await searchPlayers(FALLBACK_PLAYER_QUERY);
+    const preferredPlayer = results.find(
+      (player) => (player?.strPlayer || "").toLowerCase() === FALLBACK_PLAYER_QUERY.toLowerCase()
+    ) || results[0];
+
+    if (!preferredPlayer) {
+      return null;
+    }
+
+    if (preferredPlayer.idPlayer) {
+      const details = await fetchPlayerDetails(preferredPlayer.idPlayer);
+      return details || preferredPlayer;
+    }
+
+    return preferredPlayer;
+  } catch (error) {
+    console.error("Error loading fallback player from API:", error);
+    return null;
+  }
 }
 
 function Dashboard() {
@@ -137,9 +178,9 @@ function Dashboard() {
   const [selectedLeague, setSelectedLeague] = useState(LEAGUE_OPTIONS[0]);
   const [activeMatchId, setActiveMatchId] = useState(null);
   const [feedType, setFeedType] = useState("upcoming");
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [dashboardNotice, setDashboardNotice] = useState("");
+  const [comparisonPlayer, setComparisonPlayer] = useState(() => buildSpotlightPlayer(null));
 
   const featuredMatch = useMemo(
     () => matches.find((match) => match.idEvent === activeMatchId) || matches[0] || null,
@@ -221,6 +262,10 @@ function Dashboard() {
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      animation: {
+        duration: 220,
+        easing: "easeOutQuart",
+      },
       plugins: {
         legend: {
           display: false,
@@ -260,6 +305,150 @@ function Dashboard() {
               weight: "600",
             },
           },
+        },
+      },
+    }),
+    []
+  );
+
+  const comparisonMetrics = useMemo(() => {
+    const spotlightMetrics = Object.fromEntries(
+      spotlightPlayer.performanceProfile.map((entry) => [entry.label, entry.value])
+    );
+    const opponentMetrics = Object.fromEntries(
+      comparisonPlayer.performanceProfile.map((entry) => [entry.label, entry.value])
+    );
+
+    return {
+      spotlightMetrics,
+      opponentMetrics,
+    };
+  }, [comparisonPlayer.performanceProfile, spotlightPlayer.performanceProfile]);
+
+  const dashboardComparisonBarData = useMemo(
+    () => ({
+      labels: ["Passing Completed", "Tackles Won", "Goals Scored"],
+      datasets: [
+        {
+          label: spotlightPlayer.name,
+          data: [
+            comparisonMetrics.spotlightMetrics["Passing Completed"] || 0,
+            comparisonMetrics.spotlightMetrics["Tackles Won"] || 0,
+            comparisonMetrics.spotlightMetrics["Goals Scored"] || 0,
+          ],
+          backgroundColor: "rgba(220, 38, 38, 0.82)",
+          borderColor: "#dc2626",
+          borderWidth: 1,
+          borderRadius: 10,
+        },
+        {
+          label: comparisonPlayer.name,
+          data: [
+            comparisonMetrics.opponentMetrics["Passing Completed"] || 0,
+            comparisonMetrics.opponentMetrics["Tackles Won"] || 0,
+            comparisonMetrics.opponentMetrics["Goals Scored"] || 0,
+          ],
+          backgroundColor: "rgba(5, 150, 105, 0.82)",
+          borderColor: "#059669",
+          borderWidth: 1,
+          borderRadius: 10,
+        },
+      ],
+    }),
+    [comparisonMetrics, comparisonPlayer.name, spotlightPlayer.name]
+  );
+
+  const dashboardComparisonPolarData = useMemo(
+    () => ({
+      labels: spotlightPlayer.performanceProfile.map((entry) => entry.label),
+      datasets: [
+        {
+          label: spotlightPlayer.name,
+          data: spotlightPlayer.performanceProfile.map((entry) => entry.value),
+          backgroundColor: [
+            "rgba(220, 38, 38, 0.45)",
+            "rgba(245, 158, 11, 0.45)",
+            "rgba(59, 130, 246, 0.45)",
+            "rgba(16, 185, 129, 0.45)",
+          ],
+          borderColor: "rgba(255, 255, 255, 0.15)",
+          borderWidth: 1,
+        },
+      ],
+    }),
+    [spotlightPlayer.performanceProfile, spotlightPlayer.name]
+  );
+
+  const dashboardComparisonChartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 220,
+        easing: "easeOutQuart",
+      },
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            color: "#f4f4f5",
+            padding: 16,
+            font: { size: 11, weight: "600" },
+          },
+        },
+        tooltip: {
+          backgroundColor: "rgba(12, 12, 12, 0.92)",
+          titleColor: "#ffffff",
+          bodyColor: "#ffffff",
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: "rgba(255, 255, 255, 0.78)", font: { size: 11, weight: "600" } },
+        },
+        y: {
+          beginAtZero: true,
+          max: 100,
+          grid: { color: "rgba(255, 255, 255, 0.08)" },
+          ticks: { color: "rgba(255, 255, 255, 0.62)", font: { size: 11 } },
+        },
+      },
+    }),
+    []
+  );
+
+  const dashboardComparisonPolarOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 220,
+        easing: "easeOutQuart",
+      },
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            color: "#f4f4f5",
+            padding: 16,
+            font: { size: 11, weight: "600" },
+          },
+        },
+        tooltip: {
+          backgroundColor: "rgba(12, 12, 12, 0.92)",
+          titleColor: "#ffffff",
+          bodyColor: "#ffffff",
+        },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          max: 100,
+          grid: { color: "rgba(255, 255, 255, 0.08)" },
+          angleLines: { color: "rgba(255, 255, 255, 0.08)" },
+          pointLabels: { color: "rgba(255, 255, 255, 0.78)", font: { size: 11, weight: "600" } },
+          ticks: { display: false },
         },
       },
     }),
@@ -411,10 +600,6 @@ function Dashboard() {
     }, [normalizeTeamName]);
 
   const loadMatches = useCallback(async ({ manualRefresh = false } = {}) => {
-    if (manualRefresh) {
-      setIsRefreshing(true);
-    }
-
     try {
       let source = "live";
       let results = await fetchLiveMatches(selectedLeague.name);
@@ -433,10 +618,6 @@ function Dashboard() {
     } catch (error) {
       console.error("Error loading matches:", error);
       setDashboardNotice("Unable to refresh matches right now. Please try again.");
-    } finally {
-      if (manualRefresh) {
-        setIsRefreshing(false);
-      }
     }
   }, [cacheTeamsForMatches, selectedLeague.id, selectedLeague.name]);
 
@@ -458,13 +639,30 @@ function Dashboard() {
     } catch (error) {
       console.error("Error loading dashboard context:", error);
       setLeagueTeamsCount(20);
-      setSpotlightPlayer(buildSpotlightPlayer(null));
+      const fallbackPlayer = await fetchApiFallbackPlayer();
+      setSpotlightPlayer(buildSpotlightPlayer(fallbackPlayer));
     }
   }, [selectedLeague.name, selectedLeague.spotlightTeam]);
 
   useEffect(() => {
     loadLeagueContext();
     loadMatches();
+  }, [loadLeagueContext, loadMatches]);
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      teamCacheRef.current = {};
+      teamBadgeByNameRef.current = {};
+      loadLeagueContext();
+      loadMatches({ manualRefresh: true });
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
   }, [loadLeagueContext, loadMatches]);
 
   const cycleLeague = () => {
@@ -488,14 +686,54 @@ function Dashboard() {
 
         if (preferredPlayer || playerDetails) {
           setSpotlightPlayer(buildSpotlightPlayer(playerDetails || preferredPlayer));
+        } else {
+          const fallbackPlayer = await fetchApiFallbackPlayer();
+          setSpotlightPlayer(buildSpotlightPlayer(fallbackPlayer));
         }
       } catch (error) {
         console.error("Error loading spotlight player:", error);
+        const fallbackPlayer = await fetchApiFallbackPlayer();
+        setSpotlightPlayer(buildSpotlightPlayer(fallbackPlayer));
       }
     }
 
     loadSpotlightFromMatch();
   }, [featuredMatch]);
+
+  useEffect(() => {
+    async function loadComparisonPlayer() {
+      const homeTeam = featuredMatch?.strHomeTeam;
+      const awayTeam = featuredMatch?.strAwayTeam;
+      const spotlightTeam = spotlightPlayer.team;
+
+      const comparisonTeam =
+        spotlightTeam && homeTeam === spotlightTeam
+          ? awayTeam
+          : homeTeam || awayTeam || selectedLeague.spotlightTeam;
+
+      if (!comparisonTeam) {
+        const fallbackPlayer = await fetchApiFallbackPlayer();
+        setComparisonPlayer(buildSpotlightPlayer(fallbackPlayer));
+        return;
+      }
+
+      try {
+        const playersData = await fetchPlayers(comparisonTeam);
+        const preferredPlayer = pickSpotlightCandidate(playersData);
+        const playerDetails = preferredPlayer?.idPlayer
+          ? await fetchPlayerDetails(preferredPlayer.idPlayer)
+          : null;
+
+        setComparisonPlayer(buildSpotlightPlayer(playerDetails || preferredPlayer));
+      } catch (error) {
+        console.error("Error loading comparison player:", error);
+        const fallbackPlayer = await fetchApiFallbackPlayer();
+        setComparisonPlayer(buildSpotlightPlayer(fallbackPlayer));
+      }
+    }
+
+    loadComparisonPlayer();
+  }, [featuredMatch, selectedLeague.spotlightTeam, spotlightPlayer.team]);
 
   return (
     <div className="home">
@@ -510,16 +748,6 @@ function Dashboard() {
                   <p>{getFeedLabel()} · {getMatchRoundLabel()}</p>
                 </div>
                 <div className="dashboard-header-actions">
-                  <button
-                    type="button"
-                    className="dashboard-refresh-btn"
-                    onClick={() => loadMatches({ manualRefresh: true })}
-                    disabled={isRefreshing}
-                    aria-label="Refresh match feed"
-                    title={isRefreshing ? "Refreshing" : "Refresh"}
-                  >
-                    <i className={`bx ${isRefreshing ? "bx-loader-alt bx-spin" : "bx-refresh"}`}></i>
-                  </button>
                   <span className={`dashboard-live-pill ${featuredMatch?.strStatus === "LIVE" ? "is-live" : ""}`}>
                     <span className="live-dot"></span>
                     {getCardStatus(featuredMatch)}
@@ -569,7 +797,8 @@ function Dashboard() {
                   <div className="dashboard-empty-state">
                     <p>{dashboardNotice || "No live or upcoming matches available."}</p>
                     <button type="button" className="dashboard-empty-action" onClick={cycleLeague}>
-                      Try Another League
+                      <i className="bx bx-play-circle" aria-hidden="true"></i>
+                      Get Started
                     </button>
                   </div>
                 )}
@@ -726,6 +955,31 @@ function Dashboard() {
                 ) : (
                   <div className="dashboard-empty-state">No matches to display for this league.</div>
                 )}
+              </div>
+            </section>
+
+            <section className="dashboard-panel dashboard-comparison-panel">
+              <div className="dashboard-panel-header">
+                <div>
+                  <h2>Comparison Snapshot</h2>
+                  <p>{spotlightPlayer.name} vs {comparisonPlayer.name}</p>
+                </div>
+              </div>
+
+              <div className="charts-grid dashboard-comparison-charts">
+                <div className="chart-card">
+                  <h3>Key Attribute Comparison</h3>
+                  <div className="chart-container dashboard-mini-chart">
+                    <Bar data={dashboardComparisonBarData} options={dashboardComparisonChartOptions} />
+                  </div>
+                </div>
+
+                <div className="chart-card">
+                  <h3>Spotlight Player Shape</h3>
+                  <div className="chart-container dashboard-mini-chart">
+                    <PolarArea data={dashboardComparisonPolarData} options={dashboardComparisonPolarOptions} />
+                  </div>
+                </div>
               </div>
             </section>
           </div>

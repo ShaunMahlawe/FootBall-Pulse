@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -10,7 +10,9 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
+import { clearApiCache, fetchLeagues, fetchPlayers, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
+import { getPlayerVisual } from "../utils/playerVisuals";
 
 ChartJS.register(
   CategoryScale,
@@ -22,59 +24,425 @@ ChartJS.register(
   Legend
 );
 
-const TIMELINE_DATA = {
-  seasons: ["2018/19", "2019/20", "2020/21", "2021/22", "2022/23", "2023/24"],
-  metrics: {
-    goals: [45, 38, 42, 48, 52, 55],
-    assists: [28, 32, 35, 40, 38, 42],
-    shots: [320, 345, 310, 380, 395, 410],
-    passes: [85.2, 87.1, 86.8, 88.5, 89.2, 90.1],
-    tackles: [180, 195, 175, 200, 210, 205],
-    possession: [58.5, 60.2, 59.8, 61.5, 62.1, 63.2],
-  },
-};
-
 const METRIC_LABELS = {
   goals: "Goals Scored",
   assists: "Assists",
   shots: "Total Shots",
-  passes: "Pass Accuracy (%)",
+  passes: "Passes",
   tackles: "Tackles Won",
-  possession: "Possession (%)",
+  saves: "Saves",
 };
 
-const PERCENTAGE_METRICS = ["passes", "possession"];
+const METRIC_KEYS = ["goals", "assists", "shots", "passes", "tackles", "saves"];
+const METRIC_AXIS_LABELS = METRIC_KEYS.map((key) => METRIC_LABELS[key]);
+
+function getNumericStat(player, keys) {
+  for (const key of keys) {
+    const value = player?.[key];
+    if (value !== null && value !== undefined && value !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return 0;
+}
+
+function mapPlayer(player, index, clubName = "") {
+  return {
+    id: player.idPlayer || `${clubName || "club"}-${index}`,
+    name: player.strPlayer || `Player ${index + 1}`,
+    club: player.strTeam || clubName,
+    photo: getPlayerVisual(player, { name: player.strPlayer, team: player.strTeam || clubName }),
+    position: player.strPosition || "Unknown",
+    stats: {
+      goals: getNumericStat(player, ["intGoals", "strGoals"]),
+      assists: getNumericStat(player, ["intAssists", "strAssists"]),
+      shots: getNumericStat(player, ["intShots", "strShots", "intShotsOnTarget"]),
+      passes: getNumericStat(player, ["intPasses", "strPasses", "intPassesCompleted"]),
+      tackles: getNumericStat(player, ["intTackles", "strTackles"]),
+      saves: getNumericStat(player, ["intSaves", "strSaves"]),
+    },
+  };
+}
+
+function getAverageStats(players) {
+  if (!players || players.length === 0) {
+    return {
+      goals: 0,
+      assists: 0,
+      shots: 0,
+      passes: 0,
+      tackles: 0,
+      saves: 0,
+    };
+  }
+
+  const totals = players.reduce(
+    (acc, player) => {
+      acc.goals += player.stats.goals;
+      acc.assists += player.stats.assists;
+      acc.shots += player.stats.shots;
+      acc.passes += player.stats.passes;
+      acc.tackles += player.stats.tackles;
+      acc.saves += player.stats.saves;
+      return acc;
+    },
+    { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 }
+  );
+
+  const count = players.length;
+  return {
+    goals: totals.goals / count,
+    assists: totals.assists / count,
+    shots: totals.shots / count,
+    passes: totals.passes / count,
+    tackles: totals.tackles / count,
+    saves: totals.saves / count,
+  };
+}
 
 function formatMetricValue(metric, value) {
-  return `${value}${PERCENTAGE_METRICS.includes(metric) ? "%" : ""}`;
+  const rounded = Number(value || 0).toFixed(1);
+  return rounded.endsWith(".0") ? String(Math.round(Number(rounded))) : rounded;
 }
 
 function Timeline() {
+  const teamCacheRef = useRef({});
+  const rosterCacheRef = useRef({});
+  const leagueAverageCacheRef = useRef({});
+
+  const [leagues, setLeagues] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [players, setPlayers] = useState([]);
+  const [leagueAverage, setLeagueAverage] = useState(getAverageStats([]));
+  const [loading, setLoading] = useState(true);
+  const [loadingLeagues, setLoadingLeagues] = useState(true);
+  const [loadingLeagueAverage, setLoadingLeagueAverage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [selectedLeague, setSelectedLeague] = useState("English Premier League");
+  const [selectedTeam, setSelectedTeam] = useState("");
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
   const [selectedMetric, setSelectedMetric] = useState("goals");
+  const [includeClubAverage, setIncludeClubAverage] = useState(true);
+  const [includeLeagueAverage, setIncludeLeagueAverage] = useState(true);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      teamCacheRef.current = {};
+      rosterCacheRef.current = {};
+      leagueAverageCacheRef.current = {};
+      setRefreshNonce((value) => value + 1);
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
+  }, []);
+
+  const togglePlayerSelection = (playerId) => {
+    setSelectedPlayerIds((prev) => {
+      if (prev.includes(playerId)) {
+        return prev.filter((id) => id !== playerId);
+      }
+
+      if (prev.length >= 6) {
+        return [...prev.slice(1), playerId];
+      }
+
+      return [...prev, playerId];
+    });
+  };
+
+  const selectTopPlayers = () => {
+    setSelectedPlayerIds(players.slice(0, 3).map((player) => player.id));
+  };
+
+  const clearSelectedPlayers = () => {
+    setSelectedPlayerIds([]);
+    setIncludeClubAverage(true);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLeagues() {
+      try {
+        setLoadingLeagues(true);
+        setErrorMessage("");
+        const leagueData = await fetchLeagues();
+        const soccerLeagues = (leagueData || []).filter((league) => league?.strLeague);
+
+        if (!isMounted) return;
+        setLeagues(soccerLeagues);
+
+        if (soccerLeagues.length > 0) {
+          setSelectedLeague((prev) => {
+            const exists = soccerLeagues.some((league) => league.strLeague === prev);
+            return exists ? prev : soccerLeagues[0].strLeague;
+          });
+        }
+      } catch (error) {
+        console.error("Error loading leagues:", error);
+        if (isMounted) {
+          setErrorMessage("Could not load leagues. Please try again.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingLeagues(false);
+        }
+      }
+    }
+
+    loadLeagues();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshNonce]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTeamsAndLeagueAverage() {
+      if (!selectedLeague) return;
+
+      setLoading(true);
+      setLoadingLeagueAverage(true);
+
+      try {
+        setErrorMessage("");
+
+        const cachedTeams = teamCacheRef.current[selectedLeague];
+        const teamData = cachedTeams || (await fetchTeams(selectedLeague));
+
+        if (!cachedTeams) {
+          teamCacheRef.current[selectedLeague] = teamData || [];
+        }
+
+        if (!isMounted) return;
+
+        const resolvedTeams = teamData || [];
+        setTeams(resolvedTeams);
+
+        if (resolvedTeams.length === 0) {
+          setSelectedTeam("");
+          setLeagueAverage(getAverageStats([]));
+          return;
+        }
+
+        const defaultTeam = resolvedTeams[0].strTeam;
+        setSelectedTeam((prev) => {
+          const exists = resolvedTeams.some((team) => team.strTeam === prev);
+          return exists ? prev : defaultTeam;
+        });
+
+        const cachedLeagueAverage = leagueAverageCacheRef.current[selectedLeague];
+
+        if (cachedLeagueAverage) {
+          setLeagueAverage(cachedLeagueAverage);
+          return;
+        }
+
+        const sampleTeams = resolvedTeams.slice(0, 8);
+        const playerGroups = await Promise.all(
+          sampleTeams.map(async (team) => {
+            const teamName = team.strTeam;
+            const cachedRoster = rosterCacheRef.current[teamName];
+            const roster = cachedRoster || (await fetchPlayers(teamName));
+
+            if (!cachedRoster) {
+              rosterCacheRef.current[teamName] = roster || [];
+            }
+
+            return (roster || []).map((player, index) => mapPlayer(player, index, teamName));
+          })
+        );
+
+        if (!isMounted) return;
+        const leaguePlayers = playerGroups.flat();
+        const computedLeagueAverage = getAverageStats(leaguePlayers);
+        leagueAverageCacheRef.current[selectedLeague] = computedLeagueAverage;
+        setLeagueAverage(computedLeagueAverage);
+      } catch (error) {
+        console.error("Error loading teams or league average:", error);
+        if (isMounted) {
+          setTeams([]);
+          setSelectedTeam("");
+          setLeagueAverage(getAverageStats([]));
+          setErrorMessage("Could not load league comparison data. Please try another league.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+          setLoadingLeagueAverage(false);
+        }
+      }
+    }
+
+    loadTeamsAndLeagueAverage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLeague, refreshNonce]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTeamPlayers() {
+      if (!selectedTeam) {
+        setPlayers([]);
+        setSelectedPlayerIds([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        setErrorMessage("");
+
+        const cachedRoster = rosterCacheRef.current[selectedTeam];
+        const roster = cachedRoster || (await fetchPlayers(selectedTeam));
+
+        if (!cachedRoster) {
+          rosterCacheRef.current[selectedTeam] = roster || [];
+        }
+
+        if (!isMounted) return;
+
+        const mappedPlayers = (roster || []).map((player, index) => mapPlayer(player, index, selectedTeam));
+        setPlayers(mappedPlayers);
+
+        setSelectedPlayerIds((prev) => {
+          const validSelection = prev.filter((id) => mappedPlayers.some((player) => player.id === id));
+          if (validSelection.length > 0) {
+            return validSelection;
+          }
+
+          return mappedPlayers.slice(0, 3).map((player) => player.id);
+        });
+      } catch (error) {
+        console.error("Error loading players:", error);
+        if (isMounted) {
+          setPlayers([]);
+          setSelectedPlayerIds([]);
+          setErrorMessage("Could not load players for this club.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadTeamPlayers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTeam, refreshNonce]);
+
+  const selectedPlayers = selectedPlayerIds
+    .map((id) => players.find((player) => player.id === id))
+    .filter(Boolean);
+  const selectedPlayer = selectedPlayers[0] || null;
+  const fallbackPlayer = players[0] || null;
+  const clubAverage = useMemo(() => getAverageStats(players), [players]);
+
+  const clubSeries = METRIC_KEYS.map((metric) => clubAverage[metric]);
+  const leagueSeries = METRIC_KEYS.map((metric) => leagueAverage[metric]);
+  const playerPalette = [
+    { border: "#dc2626", bg: "rgba(220, 38, 38, 0.1)" },
+    { border: "#0ea5e9", bg: "rgba(14, 165, 233, 0.1)" },
+    { border: "#16a34a", bg: "rgba(22, 163, 74, 0.1)" },
+    { border: "#f59e0b", bg: "rgba(245, 158, 11, 0.1)" },
+    { border: "#7c3aed", bg: "rgba(124, 58, 237, 0.1)" },
+    { border: "#db2777", bg: "rgba(219, 39, 119, 0.1)" },
+  ];
+
+  const comparedPlayers = selectedPlayers;
+
+  const playerDatasets = comparedPlayers.map((player, index) => {
+    const color = playerPalette[index % playerPalette.length];
+    return {
+      label: `${player.name} (${player.club})`,
+      data: METRIC_KEYS.map((metric) => player.stats[metric]),
+      borderColor: color.border,
+      backgroundColor: color.bg,
+      borderWidth: 3,
+      fill: true,
+      tension: 0.4,
+      pointBackgroundColor: color.border,
+      pointBorderColor: "#ffffff",
+      pointBorderWidth: 2,
+      pointRadius: 6,
+      pointHoverRadius: 8,
+    };
+  });
+
+  const shouldRenderClubAverage = includeClubAverage || (playerDatasets.length === 0 && !includeLeagueAverage);
+  const shouldRenderLeagueAverage = includeLeagueAverage;
+
+  const chartDatasets = [
+    ...playerDatasets,
+    ...(shouldRenderClubAverage
+      ? [
+          {
+            label: `${selectedTeam || "Club"} Average`,
+            data: clubSeries,
+            borderColor: "#059669",
+            backgroundColor: "rgba(5, 150, 105, 0.1)",
+            borderWidth: 3,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: "#059669",
+            pointBorderColor: "#ffffff",
+            pointBorderWidth: 2,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+          },
+        ]
+      : []),
+    ...(shouldRenderLeagueAverage
+      ? [
+          {
+            label: `${selectedLeague || "League"} Average`,
+            data: leagueSeries,
+            borderColor: "#2563eb",
+            backgroundColor: "rgba(37, 99, 235, 0.1)",
+            borderWidth: 3,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: "#2563eb",
+            pointBorderColor: "#ffffff",
+            pointBorderWidth: 2,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+          },
+        ]
+      : []),
+  ];
+
+  const plottedDatasetLabels = chartDatasets.map((dataset) => dataset.label);
 
   const lineData = {
-    labels: TIMELINE_DATA.seasons,
-    datasets: [
-      {
-        label: METRIC_LABELS[selectedMetric],
-        data: TIMELINE_DATA.metrics[selectedMetric],
-        borderColor: "#dc2626",
-        backgroundColor: "rgba(220, 38, 38, 0.1)",
-        borderWidth: 3,
-        fill: true,
-        tension: 0.4,
-        pointBackgroundColor: "#dc2626",
-        pointBorderColor: "#ffffff",
-        pointBorderWidth: 2,
-        pointRadius: 6,
-        pointHoverRadius: 8,
-      },
-    ],
+    labels: METRIC_AXIS_LABELS,
+    datasets: chartDatasets,
   };
 
   const lineOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: {
+      duration: 220,
+      easing: "easeOutQuart",
+    },
     plugins: {
       legend: {
         position: "top",
@@ -95,10 +463,7 @@ function Timeline() {
             if (label) {
               label += ": ";
             }
-            label += context.parsed.y;
-            if (PERCENTAGE_METRICS.includes(selectedMetric)) {
-              label += "%";
-            }
+            label += formatMetricValue(selectedMetric, context.parsed.y);
             return label;
           },
         },
@@ -113,12 +478,6 @@ function Timeline() {
         ticks: {
           font: {
             size: 12,
-          },
-          callback(value) {
-            if (PERCENTAGE_METRICS.includes(selectedMetric)) {
-              return `${value}%`;
-            }
-            return value;
           },
         },
       },
@@ -140,22 +499,42 @@ function Timeline() {
     },
   };
 
-  const getTrendDirection = (data) => {
-    const firstHalf = data.slice(0, Math.floor(data.length / 2));
-    const secondHalf = data.slice(Math.floor(data.length / 2));
+  const playerValue = selectedPlayer ? selectedPlayer.stats[selectedMetric] : 0;
+  const clubValue = clubAverage[selectedMetric] || 0;
+  const leagueValue = leagueAverage[selectedMetric] || 0;
+  const gapVsClub = clubValue === 0 ? 0 : ((playerValue - clubValue) / clubValue) * 100;
 
-    const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
-    const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+  const trend = !selectedPlayer
+    ? { icon: "bx-info-circle", text: "Showing Average Datasets" }
+    : gapVsClub > 5
+    ? { icon: "bx-trending-up", text: "Above Club Average" }
+    : gapVsClub < -5
+    ? { icon: "bx-trending-down", text: "Below Club Average" }
+    : { icon: "bx-minus", text: "Near Club Average" };
 
-    if (secondAvg > firstAvg * 1.05) return { direction: "up", icon: "bx-trending-up", text: "Trending Up" };
-    if (secondAvg < firstAvg * 0.95) return { direction: "down", icon: "bx-trending-down", text: "Trending Down" };
-    return { direction: "stable", icon: "bx-minus", text: "Stable Trend" };
-  };
-
-  const trend = getTrendDirection(TIMELINE_DATA.metrics[selectedMetric]);
-  const currentValue = TIMELINE_DATA.metrics[selectedMetric][TIMELINE_DATA.metrics[selectedMetric].length - 1];
-  const previousValue = TIMELINE_DATA.metrics[selectedMetric][TIMELINE_DATA.metrics[selectedMetric].length - 2];
-  const change = (((currentValue - previousValue) / previousValue) * 100).toFixed(1);
+  if (loading && !fallbackPlayer && teams.length === 0) {
+    return (
+      <div className="home">
+        <Topbar />
+        <div className="dashboard-shell page-flow-shell">
+          <div className="page-container page-flow-container">
+            <div className="page-header">
+              <div className="page-title-row">
+                <span className="page-title-icon">
+                  <i className="bx bx-time-five"></i>
+                </span>
+                <h1 className="page-title">Performance Timeline</h1>
+              </div>
+              <p className="page-subtitle">Loading league, club, and player data...</p>
+            </div>
+            <div className="dashboard-panel loading-container">
+              <div>Loading performance comparison...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="home">
@@ -169,11 +548,109 @@ function Timeline() {
             </span>
             <h1 className="page-title">Performance Timeline</h1>
           </div>
-          <p className="page-subtitle">Track performance trends across multiple seasons with interactive metrics</p>
+          <p className="page-subtitle">Compare player performance against club and league averages</p>
+          {errorMessage ? <p className="page-subtitle">{errorMessage}</p> : null}
         </div>
 
         <div className="dashboard-panel timeline-controls-panel">
         <div className="timeline-controls">
+          <div className="metric-selector">
+            <label htmlFor="league-select">League:</label>
+            <select
+              id="league-select"
+              value={selectedLeague}
+              onChange={(e) => setSelectedLeague(e.target.value)}
+              className="metric-select"
+              disabled={loadingLeagues || leagues.length === 0}
+            >
+              {leagues.length === 0 ? <option value="">No leagues available</option> : null}
+              {leagues.map((league) => (
+                <option key={league.idLeague || league.strLeague} value={league.strLeague}>
+                  {league.strLeague}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="metric-selector">
+            <label htmlFor="team-select">Club:</label>
+            <select
+              id="team-select"
+              value={selectedTeam}
+              onChange={(e) => setSelectedTeam(e.target.value)}
+              className="metric-select"
+              disabled={loading || teams.length === 0}
+            >
+              {teams.length === 0 ? <option value="">No clubs available</option> : null}
+              {teams.map((team) => (
+                <option key={team.idTeam || team.strTeam} value={team.strTeam}>
+                  {team.strTeam}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="metric-selector">
+            <label>Players To Compare (up to 6):</label>
+            <div className="timeline-selection-actions">
+              <button
+                type="button"
+                className="timeline-action-btn"
+                onClick={selectTopPlayers}
+                disabled={loading || players.length === 0}
+              >
+                Top 3
+              </button>
+              <button
+                type="button"
+                className="timeline-action-btn"
+                onClick={clearSelectedPlayers}
+                disabled={loading || players.length === 0}
+              >
+                Clear
+              </button>
+            </div>
+            <div className="timeline-player-picker" role="group" aria-label="Players to compare">
+              {players.length === 0 ? (
+                <span className="timeline-picker-empty">No players available</span>
+              ) : (
+                players.map((player) => (
+                  <label key={player.id} className="timeline-player-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedPlayerIds.includes(player.id)}
+                      onChange={() => togglePlayerSelection(player.id)}
+                      disabled={loading}
+                    />
+                    <span>{player.name} ({player.position})</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="metric-selector">
+            <label>Dataset Overlays:</label>
+            <div className="timeline-overlay-options">
+              <label className="timeline-overlay-option">
+                <input
+                  type="checkbox"
+                  checked={includeClubAverage}
+                  onChange={(e) => setIncludeClubAverage(e.target.checked)}
+                />
+                Club Avg
+              </label>
+              <label className="timeline-overlay-option">
+                <input
+                  type="checkbox"
+                  checked={includeLeagueAverage}
+                  onChange={(e) => setIncludeLeagueAverage(e.target.checked)}
+                />
+                League Avg
+              </label>
+            </div>
+          </div>
+
           <div className="metric-selector">
             <label htmlFor="metric-select">Select Metric:</label>
             <select
@@ -185,9 +662,9 @@ function Timeline() {
               <option value="goals">Goals Scored</option>
               <option value="assists">Assists</option>
               <option value="shots">Total Shots</option>
-              <option value="passes">Pass Accuracy</option>
+              <option value="passes">Passes</option>
               <option value="tackles">Tackles Won</option>
-              <option value="possession">Possession</option>
+              <option value="saves">Saves</option>
             </select>
           </div>
 
@@ -198,10 +675,15 @@ function Timeline() {
               </div>
               <div className="trend-info">
                 <h4>{trend.text}</h4>
-                <p>Latest: {formatMetricValue(selectedMetric, currentValue)}</p>
-                <span className={`change ${change > 0 ? "positive" : change < 0 ? "negative" : "neutral"}`}>
-                  {change > 0 ? "+" : ""}
-                  {change}% from last season
+                <p>
+                  {selectedPlayer
+                    ? `${selectedPlayer.name}: ${formatMetricValue(selectedMetric, playerValue)}`
+                    : `${selectedTeam || "Club"} average active`}
+                </p>
+                <span className={`change ${gapVsClub > 0 ? "positive" : gapVsClub < 0 ? "negative" : "neutral"}`}>
+                  {selectedPlayer
+                    ? `${gapVsClub > 0 ? "+" : ""}${gapVsClub.toFixed(1)}% vs club average`
+                    : "Select players to compare against averages"}
                 </span>
               </div>
             </div>
@@ -212,7 +694,10 @@ function Timeline() {
         <div className="dashboard-panel timeline-chart-panel">
         <div className="timeline-chart-container">
           <div className="chart-card">
-            <h3>{METRIC_LABELS[selectedMetric]} Over Time</h3>
+            <h3>Multi-Dataset Comparison (Players, Club, League)</h3>
+            <p className="timeline-render-meta">
+              Rendering {chartDatasets.length} dataset{chartDatasets.length === 1 ? "" : "s"}: {plottedDatasetLabels.join(", ")}
+            </p>
             <div className="timeline-chart">
               <Line data={lineData} options={lineOptions} />
             </div>
@@ -222,21 +707,37 @@ function Timeline() {
 
         <div className="dashboard-panel season-breakdown-panel">
         <div className="season-breakdown">
-          <h3>Season-by-Season Breakdown</h3>
+          <h3>Performance Breakdown</h3>
           <div className="season-grid">
-            {TIMELINE_DATA.seasons.map((season, index) => (
-              <div key={season} className="season-card">
-                <h4>{season}</h4>
-                <div className="metric-value">
-                  {formatMetricValue(selectedMetric, TIMELINE_DATA.metrics[selectedMetric][index])}
-                </div>
-                <div className="season-rank">
-                  {index === TIMELINE_DATA.seasons.length - 1 ? 'Current' :
-                   index === TIMELINE_DATA.seasons.length - 2 ? 'Previous' :
-                   `Season ${index + 1}`}
-                </div>
+            <div className="season-card">
+              <h4>{selectedPlayer?.name || "No Player Selected"}</h4>
+              <div className="metric-value">{selectedPlayer ? formatMetricValue(selectedMetric, playerValue) : "-"}</div>
+              <div className="season-rank">Selected Player Dataset</div>
+            </div>
+
+            <div className="season-card">
+              <h4>{selectedTeam || "Club"}</h4>
+              <div className="metric-value">{formatMetricValue(selectedMetric, clubValue)}</div>
+              <div className="season-rank">Club Average</div>
+            </div>
+
+            <div className="season-card">
+              <h4>{selectedLeague || "League"}</h4>
+              <div className="metric-value">{formatMetricValue(selectedMetric, leagueValue)}</div>
+              <div className="season-rank">
+                {loadingLeagueAverage ? "Refreshing..." : "League Average"}
               </div>
-            ))}
+            </div>
+
+            <div className="season-card">
+              <h4>Gap To League</h4>
+              <div className="metric-value">
+                {leagueValue === 0
+                  ? "0"
+                  : `${(((playerValue - leagueValue) / leagueValue) * 100).toFixed(1)}%`}
+              </div>
+              <div className="season-rank">Player vs League</div>
+            </div>
           </div>
         </div>
         </div>

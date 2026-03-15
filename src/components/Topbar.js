@@ -44,6 +44,14 @@ function Topbar() {
     return () => clearInterval(interval);
   }, []);
 
+  const openSidebarSearch = () => {
+    window.dispatchEvent(new CustomEvent("footballpulse:openSidebarSearch"));
+  };
+
+  const triggerAppRefresh = () => {
+    window.dispatchEvent(new CustomEvent("footballpulse:refreshData"));
+  };
+
   return (
     <div className="topbar">
       <div className="topbar-title">
@@ -54,6 +62,16 @@ function Topbar() {
       </div>
 
       <div className="flex items-center gap-4">
+        <i
+          className="bx bx-refresh icon topbar-action-icon"
+          title="Refresh app data"
+          onClick={triggerAppRefresh}
+        ></i>
+        <i
+          className="bx bx-search icon topbar-action-icon"
+          title="Open sidebar search"
+          onClick={openSidebarSearch}
+        ></i>
         <i className="bx bx-bell icon topbar-action-icon"></i>
         <i className="bx bx-cog icon topbar-action-icon"></i>
         <i className="bx bx-log-out icon topbar-action-icon" title="Logout"></i>

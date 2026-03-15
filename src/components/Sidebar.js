@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 const NAV_LINKS = [
@@ -15,11 +15,27 @@ function Sidebar() {
     return document.body.classList.contains("dark") || false;
   });
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef(null);
   const location = useLocation();
 
   useEffect(() => {
     document.body.classList.toggle("dark", isDarkMode);
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const handleOpenSearch = () => {
+      setIsCollapsed(false);
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+    };
+
+    window.addEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+
+    return () => {
+      window.removeEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+    };
+  }, []);
 
   const toggleSidebar = () => {
     setIsCollapsed((prev) => !prev);
@@ -27,6 +43,13 @@ function Sidebar() {
 
   const toggleTheme = () => {
     setIsDarkMode((prev) => !prev);
+  };
+
+  const openSearch = () => {
+    setIsCollapsed(false);
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
   };
 
   const filteredLinks = NAV_LINKS.filter((link) =>
@@ -55,9 +78,21 @@ function Sidebar() {
       <div className="menu-bar">
         <div className="menu">
           <ul className="menu-links">
-            <li className="search-box">
-              <i className="bx bx-search icon"></i>
+            <li
+              className="search-box"
+              onClick={openSearch}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openSearch();
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
+              <i className="bx bx-search icon" onClick={openSearch}></i>
               <input
+                ref={searchInputRef}
                 type="search"
                 placeholder="Search..."
                 value={search}

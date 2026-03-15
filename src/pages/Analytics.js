@@ -14,8 +14,9 @@ import {
   LineElement,
   Filler
 } from "chart.js";
-import { fetchPlayers } from "../api/apiFootball";
+import { clearApiCache, fetchLeagues, fetchPlayers, fetchTeamByName, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
+import { getPlayerVisual } from "../utils/playerVisuals";
 
 ChartJS.register(
   CategoryScale,
@@ -31,109 +32,352 @@ ChartJS.register(
   Filler
 );
 
+function getNumericStat(player, keys) {
+  for (const key of keys) {
+    const value = player?.[key];
+    if (value !== null && value !== undefined && value !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return 0;
+}
+
+function getShotAccuracy(player) {
+  const totalShots = Number(player?.stats?.shots || 0);
+  const onTargetShots = Number(player?.stats?.shotsOnTarget || 0);
+
+  if (totalShots <= 0) {
+    return "N/A";
+  }
+
+  return `${((onTargetShots / totalShots) * 100).toFixed(1)}%`;
+}
+
 function Analytics() {
-  const [selectedPlayers, setSelectedPlayers] = useState([0, 1]);
-  const [players, setPlayers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedPlayers, setSelectedPlayers] = useState(["", ""]);
+  const [playersBySide, setPlayersBySide] = useState([[], []]);
+  const [leagues, setLeagues] = useState([]);
+  const [teamsBySide, setTeamsBySide] = useState([[], []]);
+  const [selectedLeagues, setSelectedLeagues] = useState([
+    "English Premier League",
+    "English Premier League"
+  ]);
+  const [selectedClubs, setSelectedClubs] = useState(["", ""]);
+  const [loadingLeagues, setLoadingLeagues] = useState(true);
+  const [loadingSides, setLoadingSides] = useState([false, false]);
+  const [clubBadges, setClubBadges] = useState({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
-  // Load players from API
   useEffect(() => {
-    async function loadPlayers() {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      setClubBadges({});
+      setRefreshNonce((value) => value + 1);
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
+  }, []);
+
+  // Load available soccer leagues once
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLeagues() {
+      setLoadingLeagues(true);
       try {
-        // Fetch players from Barcelona (popular team with good data)
-        const barcelonaPlayers = await fetchPlayers("Barcelona");
+        const leagueData = await fetchLeagues();
+        const soccerLeagues = (leagueData || []).filter((league) => league?.strLeague);
 
-        if (barcelonaPlayers && barcelonaPlayers.length > 0) {
-          // Transform API data to our format
-          const formattedPlayers = barcelonaPlayers.slice(0, 4).map((player, index) => ({
-            id: index,
-            name: player.strPlayer || `Player ${index + 1}`,
-            photo: player.strThumb || player.strCutout || `https://via.placeholder.com/150x150?text=${player.strPlayer?.charAt(0) || 'P'}`,
-            position: player.strPosition || "Unknown",
-            stats: {
-              goals: Math.floor(Math.random() * 30) + 1, // Mock stats for demo
-              assists: Math.floor(Math.random() * 20) + 1,
-              shots: Math.floor(Math.random() * 100) + 20,
-              passes: Math.floor(Math.random() * 50) + 70,
-              tackles: Math.floor(Math.random() * 40) + 5,
-              saves: player.strPosition === "Goalkeeper" ? Math.floor(Math.random() * 150) + 50 : 0
-            }
-          }));
+        if (!isMounted) return;
 
-          setPlayers(formattedPlayers);
-        } else {
-          // Fallback to static data if API fails
-          setPlayers([
-            {
-              id: 0,
-              name: "Lionel Messi",
-              photo: "https://www.thesportsdb.com/images/media/player/thumb/qp1n8u1585843235.jpg",
-              stats: { goals: 25, assists: 15, shots: 85, passes: 92, tackles: 12, saves: 0 },
-              position: "Forward"
-            },
-            {
-              id: 1,
-              name: "Cristiano Ronaldo",
-              photo: "https://www.thesportsdb.com/images/media/player/thumb/uy7t8w1585843240.jpg",
-              stats: { goals: 28, assists: 8, shots: 95, passes: 78, tackles: 8, saves: 0 },
-              position: "Forward"
-            },
-            {
-              id: 2,
-              name: "Kevin De Bruyne",
-              photo: "https://www.thesportsdb.com/images/media/player/thumb/xu7t8w1585843245.jpg",
-              stats: { goals: 8, assists: 22, shots: 65, passes: 88, tackles: 15, saves: 0 },
-              position: "Midfielder"
-            },
-            {
-              id: 3,
-              name: "Virgil van Dijk",
-              photo: "https://www.thesportsdb.com/images/media/player/thumb/vu7t8w1585843250.jpg",
-              stats: { goals: 3, assists: 2, shots: 25, passes: 85, tackles: 35, saves: 0 },
-              position: "Defender"
-            }
-          ]);
+        setLeagues(soccerLeagues);
+
+        if (soccerLeagues.length > 0) {
+          setSelectedLeagues((prev) => {
+            const fallbackLeague = soccerLeagues[0].strLeague;
+            return prev.map((leagueName) => {
+              const exists = soccerLeagues.some((league) => league.strLeague === leagueName);
+              return exists ? leagueName : fallbackLeague;
+            });
+          });
         }
       } catch (error) {
-        console.error("Error loading players:", error);
-        // Fallback to static data
-        setPlayers([
-          {
-            id: 0,
-            name: "Lionel Messi",
-            photo: "https://www.thesportsdb.com/images/media/player/thumb/qp1n8u1585843235.jpg",
-            stats: { goals: 25, assists: 15, shots: 85, passes: 92, tackles: 12, saves: 0 },
-            position: "Forward"
-          },
-          {
-            id: 1,
-            name: "Cristiano Ronaldo",
-            photo: "https://www.thesportsdb.com/images/media/player/thumb/uy7t8w1585843240.jpg",
-            stats: { goals: 28, assists: 8, shots: 95, passes: 78, tackles: 8, saves: 0 },
-            position: "Forward"
-          },
-          {
-            id: 2,
-            name: "Kevin De Bruyne",
-            photo: "https://www.thesportsdb.com/images/media/player/thumb/xu7t8w1585843245.jpg",
-            stats: { goals: 8, assists: 22, shots: 65, passes: 88, tackles: 15, saves: 0 },
-            position: "Midfielder"
-          },
-          {
-            id: 3,
-            name: "Virgil van Dijk",
-            photo: "https://www.thesportsdb.com/images/media/player/thumb/vu7t8w1585843250.jpg",
-            stats: { goals: 3, assists: 2, shots: 25, passes: 85, tackles: 35, saves: 0 },
-            position: "Defender"
-          }
-        ]);
+        console.error("Error loading leagues:", error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoadingLeagues(false);
+        }
       }
     }
 
-    loadPlayers();
-  }, []);
+    loadLeagues();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshNonce]);
+
+  // Load clubs for side 1
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTeamsForSide0() {
+      const selectedLeague = selectedLeagues[0];
+      if (!selectedLeague) return;
+
+      try {
+        const teamData = await fetchTeams(selectedLeague);
+
+        if (!isMounted) return;
+
+        setTeamsBySide((prev) => [teamData || [], prev[1]]);
+
+        if (!teamData || teamData.length === 0) {
+          setSelectedClubs((prev) => ["", prev[1]]);
+          return;
+        }
+
+        setSelectedClubs((prev) => {
+          const next = [...prev];
+          const exists = teamData.some((team) => team.strTeam === next[0]);
+          next[0] = exists ? next[0] : teamData[0].strTeam;
+          return next;
+        });
+      } catch (error) {
+        console.error("Error loading clubs for side 1:", error);
+        if (isMounted) {
+          setTeamsBySide((prev) => [[], prev[1]]);
+          setSelectedClubs((prev) => ["", prev[1]]);
+        }
+      }
+    }
+
+    loadTeamsForSide0();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLeagues, refreshNonce]);
+
+  // Load clubs for side 2
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTeamsForSide1() {
+      const selectedLeague = selectedLeagues[1];
+      if (!selectedLeague) return;
+
+      try {
+        const teamData = await fetchTeams(selectedLeague);
+
+        if (!isMounted) return;
+
+        setTeamsBySide((prev) => [prev[0], teamData || []]);
+
+        if (!teamData || teamData.length === 0) {
+          setSelectedClubs((prev) => [prev[0], ""]);
+          return;
+        }
+
+        setSelectedClubs((prev) => {
+          const next = [...prev];
+          const exists = teamData.some((team) => team.strTeam === next[1]);
+          next[1] = exists ? next[1] : teamData[0].strTeam;
+          return next;
+        });
+      } catch (error) {
+        console.error("Error loading clubs for side 2:", error);
+        if (isMounted) {
+          setTeamsBySide((prev) => [prev[0], []]);
+          setSelectedClubs((prev) => [prev[0], ""]);
+        }
+      }
+    }
+
+    loadTeamsForSide1();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLeagues, refreshNonce]);
+
+  // Load full player list for side 1
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPlayersForSide0() {
+      const selectedClub = selectedClubs[0];
+      if (!selectedClub) {
+        setPlayersBySide((prev) => [[], prev[1]]);
+        setSelectedPlayers((prev) => ["", prev[1]]);
+        return;
+      }
+
+      setLoadingSides((prev) => [true, prev[1]]);
+
+      try {
+        const apiPlayers = await fetchPlayers(selectedClub);
+
+        if (!isMounted) return;
+
+        const formattedPlayers = (apiPlayers || []).map((player, index) => ({
+          id: player.idPlayer || `${selectedClub}-${index}`,
+          name: player.strPlayer || `Player ${index + 1}`,
+          photo: getPlayerVisual(player, { name: player.strPlayer, team: player.strTeam || selectedClub }),
+          position: player.strPosition || "Unknown",
+          club: player.strTeam || selectedClub,
+          stats: {
+            goals: getNumericStat(player, ["intGoals", "strGoals"]),
+            assists: getNumericStat(player, ["intAssists", "strAssists"]),
+            shots: getNumericStat(player, ["intShots", "strShots"]),
+            shotsOnTarget: getNumericStat(player, ["intShotsOnTarget", "strShotsOnTarget"]),
+            passes: getNumericStat(player, ["intPasses", "strPasses", "intPassesCompleted"]),
+            tackles: getNumericStat(player, ["intTackles", "strTackles"]),
+            saves: getNumericStat(player, ["intSaves", "strSaves"])
+          }
+        }));
+
+        setPlayersBySide((prev) => [formattedPlayers, prev[1]]);
+
+        setSelectedPlayers((prev) => {
+          const playerIds = formattedPlayers.map((player) => player.id);
+          const firstId = playerIds.includes(prev[0]) ? prev[0] : playerIds[0] || "";
+          return [firstId, prev[1]];
+        });
+      } catch (error) {
+        console.error("Error loading players for side 1:", error);
+        if (isMounted) {
+          setPlayersBySide((prev) => [[], prev[1]]);
+          setSelectedPlayers((prev) => ["", prev[1]]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingSides((prev) => [false, prev[1]]);
+        }
+      }
+    }
+
+    loadPlayersForSide0();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedClubs, refreshNonce]);
+
+  // Load full player list for side 2
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPlayersForSide1() {
+      const selectedClub = selectedClubs[1];
+      if (!selectedClub) {
+        setPlayersBySide((prev) => [prev[0], []]);
+        setSelectedPlayers((prev) => [prev[0], ""]);
+        return;
+      }
+
+      setLoadingSides((prev) => [prev[0], true]);
+
+      try {
+        const apiPlayers = await fetchPlayers(selectedClub);
+
+        if (!isMounted) return;
+
+        const formattedPlayers = (apiPlayers || []).map((player, index) => ({
+          id: player.idPlayer || `${selectedClub}-${index}`,
+          name: player.strPlayer || `Player ${index + 1}`,
+          photo: getPlayerVisual(player, { name: player.strPlayer, team: player.strTeam || selectedClub }),
+          position: player.strPosition || "Unknown",
+          club: player.strTeam || selectedClub,
+          stats: {
+            goals: getNumericStat(player, ["intGoals", "strGoals"]),
+            assists: getNumericStat(player, ["intAssists", "strAssists"]),
+            shots: getNumericStat(player, ["intShots", "strShots"]),
+            shotsOnTarget: getNumericStat(player, ["intShotsOnTarget", "strShotsOnTarget"]),
+            passes: getNumericStat(player, ["intPasses", "strPasses", "intPassesCompleted"]),
+            tackles: getNumericStat(player, ["intTackles", "strTackles"]),
+            saves: getNumericStat(player, ["intSaves", "strSaves"])
+          }
+        }));
+
+        setPlayersBySide((prev) => [prev[0], formattedPlayers]);
+
+        setSelectedPlayers((prev) => {
+          const playerIds = formattedPlayers.map((player) => player.id);
+          const secondId = playerIds.includes(prev[1]) ? prev[1] : playerIds[0] || "";
+          return [prev[0], secondId];
+        });
+      } catch (error) {
+        console.error("Error loading players for side 2:", error);
+        if (isMounted) {
+          setPlayersBySide((prev) => [prev[0], []]);
+          setSelectedPlayers((prev) => [prev[0], ""]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingSides((prev) => [prev[0], false]);
+        }
+      }
+    }
+
+    loadPlayersForSide1();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedClubs, refreshNonce]);
+
+  const selectedPlayer1 = playersBySide[0].find((player) => player.id === selectedPlayers[0]) || playersBySide[0][0];
+  const selectedPlayer2 = playersBySide[1].find((player) => player.id === selectedPlayers[1]) || playersBySide[1][0];
+  const loading = loadingLeagues || loadingSides[0] || loadingSides[1];
+  const player1OnTargetShots = Math.min(selectedPlayer1?.stats?.shotsOnTarget || 0, selectedPlayer1?.stats?.shots || 0);
+  const player1OffTargetShots = Math.max((selectedPlayer1?.stats?.shots || 0) - player1OnTargetShots, 0);
+  const player1ShotAccuracy = getShotAccuracy(selectedPlayer1);
+  const player2ShotAccuracy = getShotAccuracy(selectedPlayer2);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadClubBadges() {
+      const clubs = [selectedPlayer1?.club, selectedPlayer2?.club].filter(Boolean);
+      const uniqueClubs = [...new Set(clubs)];
+      const missingClubs = uniqueClubs.filter((club) => !clubBadges[club]);
+
+      if (missingClubs.length === 0) return;
+
+      const entries = await Promise.all(
+        missingClubs.map(async (club) => {
+          const team = await fetchTeamByName(club);
+          const badge = team?.strTeamBadge || team?.strTeamLogo || null;
+          return [club, badge];
+        })
+      );
+
+      if (!isMounted) return;
+
+      setClubBadges((prev) => {
+        const next = { ...prev };
+        entries.forEach(([club, badge]) => {
+          next[club] = badge;
+        });
+        return next;
+      });
+    }
+
+    loadClubBadges();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedPlayer1?.club, selectedPlayer2?.club, clubBadges]);
 
   // Show loading state
   if (loading) {
@@ -161,7 +405,7 @@ function Analytics() {
   }
 
   // Ensure we have players before rendering
-  if (!players || players.length === 0) {
+  if (!selectedPlayer1 || !selectedPlayer2) {
     return (
       <div className="home">
         <Topbar />
@@ -177,16 +421,13 @@ function Analytics() {
             <p className="page-subtitle">Unable to load player data</p>
           </div>
           <div className="dashboard-panel dashboard-empty-state">
-            <p>No comparison data is available at the moment.</p>
+            <p>No player data found for one or both sides. Try another league or club selection.</p>
           </div>
         </div>
         </div>
       </div>
     );
   }
-
-  const selectedPlayer1 = players[selectedPlayers[0]] || players[0];
-  const selectedPlayer2 = players[selectedPlayers[1]] || players[1];
 
   // Bar Chart Data - Goals and Assists Comparison
   const barData = {
@@ -214,8 +455,8 @@ function Analytics() {
     labels: ['On Target', 'Off Target'],
     datasets: [{
       data: [
-        Math.round(selectedPlayer1.stats.shots * 0.65), // Assuming 65% accuracy
-        Math.round(selectedPlayer1.stats.shots * 0.35)
+        player1OnTargetShots,
+        player1OffTargetShots
       ],
       backgroundColor: ['#dc2626', '#e5e7eb'],
       borderColor: ['#b91c1c', '#d1d5db'],
@@ -245,6 +486,10 @@ function Analytics() {
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: {
+      duration: 220,
+      easing: "easeOutQuart",
+    },
     plugins: {
       legend: {
         position: 'bottom',
@@ -281,17 +526,87 @@ function Analytics() {
         <div className="comparison-controls">
           <div className="player-selectors">
             <div className="selector-group">
+              <label>League 1:</label>
+              <select
+                value={selectedLeagues[0]}
+                onChange={(e) =>
+                  setSelectedLeagues((prev) => [e.target.value, prev[1]])
+                }
+                className="player-select"
+              >
+                {leagues.map((league) => (
+                  <option key={league.idLeague || league.strLeague} value={league.strLeague}>
+                    {league.strLeague}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="selector-group">
+              <label>Club 1:</label>
+              <select
+                value={selectedClubs[0]}
+                onChange={(e) =>
+                  setSelectedClubs((prev) => [e.target.value, prev[1]])
+                }
+                className="player-select"
+              >
+                {teamsBySide[0].map((team) => (
+                  <option key={team.idTeam || team.strTeam} value={team.strTeam}>
+                    {team.strTeam}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="selector-group">
+              <label>League 2:</label>
+              <select
+                value={selectedLeagues[1]}
+                onChange={(e) =>
+                  setSelectedLeagues((prev) => [prev[0], e.target.value])
+                }
+                className="player-select"
+              >
+                {leagues.map((league) => (
+                  <option key={`side2-${league.idLeague || league.strLeague}`} value={league.strLeague}>
+                    {league.strLeague}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="selector-group">
+              <label>Club 2:</label>
+              <select
+                value={selectedClubs[1]}
+                onChange={(e) =>
+                  setSelectedClubs((prev) => [prev[0], e.target.value])
+                }
+                className="player-select"
+              >
+                {teamsBySide[1].map((team) => (
+                  <option key={`side2-${team.idTeam || team.strTeam}`} value={team.strTeam}>
+                    {team.strTeam}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="player-selectors">
+            <div className="selector-group">
               <label>Player 1:</label>
               <div className="player-card-selection">
                 <img src={selectedPlayer1.photo} alt={selectedPlayer1.name} className="player-photo" />
                 <select
                   value={selectedPlayers[0]}
-                  onChange={(e) => setSelectedPlayers([parseInt(e.target.value), selectedPlayers[1]])}
+                  onChange={(e) => setSelectedPlayers([e.target.value, selectedPlayers[1]])}
                   className="player-select"
                 >
-                  {players.map(player => (
+                  {playersBySide[0].map(player => (
                     <option key={player.id} value={player.id}>
-                      {player.name} ({player.position})
+                      {player.name} ({player.position}) - {player.club}
                     </option>
                   ))}
                 </select>
@@ -303,12 +618,12 @@ function Analytics() {
                 <img src={selectedPlayer2.photo} alt={selectedPlayer2.name} className="player-photo" />
                 <select
                   value={selectedPlayers[1]}
-                  onChange={(e) => setSelectedPlayers([selectedPlayers[0], parseInt(e.target.value)])}
+                  onChange={(e) => setSelectedPlayers([selectedPlayers[0], e.target.value])}
                   className="player-select"
                 >
-                  {players.map(player => (
+                  {playersBySide[1].map(player => (
                     <option key={player.id} value={player.id}>
-                      {player.name} ({player.position})
+                      {player.name} ({player.position}) - {player.club}
                     </option>
                   ))}
                 </select>
@@ -352,15 +667,44 @@ function Analytics() {
         <div className="comparison-summary">
           <div className="summary-card">
             <h3>Comparison Summary</h3>
-            <div className="players-header">
-              <div className="player-header-item">
-                <img src={selectedPlayer1.photo} alt={selectedPlayer1.name} className="summary-player-photo" />
-                <span className="player-name">{selectedPlayer1.name}</span>
+            <div className="players-duel-banner">
+              <div
+                className="duel-side left"
+                style={{ backgroundImage: `url(${selectedPlayer1.photo})` }}
+              >
+                <span className="duel-club-badge" aria-hidden="true">
+                  {clubBadges[selectedPlayer1.club] ? (
+                    <img src={clubBadges[selectedPlayer1.club]} alt={`${selectedPlayer1.club} badge`} />
+                  ) : (
+                    <i className="bx bx-shield-quarter"></i>
+                  )}
+                </span>
+                <div className="duel-player-meta">
+                  <h4>{selectedPlayer1.name}</h4>
+                  <p>{selectedPlayer1.position || "Player"}</p>
+                </div>
               </div>
-              <div className="vs-badge">VS</div>
-              <div className="player-header-item">
-                <img src={selectedPlayer2.photo} alt={selectedPlayer2.name} className="summary-player-photo" />
-                <span className="player-name">{selectedPlayer2.name}</span>
+
+              <div className="duel-center" aria-hidden="true">
+                <span className="duel-vs">VS</span>
+                <span className="duel-divider">/</span>
+              </div>
+
+              <div
+                className="duel-side right"
+                style={{ backgroundImage: `url(${selectedPlayer2.photo})` }}
+              >
+                <span className="duel-club-badge" aria-hidden="true">
+                  {clubBadges[selectedPlayer2.club] ? (
+                    <img src={clubBadges[selectedPlayer2.club]} alt={`${selectedPlayer2.club} badge`} />
+                  ) : (
+                    <i className="bx bx-shield-quarter"></i>
+                  )}
+                </span>
+                <div className="duel-player-meta">
+                  <h4>{selectedPlayer2.name}</h4>
+                  <p>{selectedPlayer2.position || "Player"}</p>
+                </div>
               </div>
             </div>
             <div className="stats-comparison">
@@ -376,8 +720,8 @@ function Analytics() {
               </div>
               <div className="stat-row">
                 <span className="stat-label">Shot Accuracy:</span>
-                <span className="stat-value player1">65%</span>
-                <span className="stat-value player2">70%</span>
+                <span className="stat-value player1">{player1ShotAccuracy}</span>
+                <span className="stat-value player2">{player2ShotAccuracy}</span>
               </div>
             </div>
           </div>
