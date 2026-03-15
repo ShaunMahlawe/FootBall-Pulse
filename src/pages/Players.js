@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchPlayers, fetchPlayerDetails, fetchTeams } from "../api/apiFootball";
+import { useLocation } from "react-router-dom";
+import { fetchPlayers, fetchPlayerDetails, fetchTeamByName, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
-import { getPlayerVisual } from "../utils/playerVisuals";
+import { getPlayerProfileVisual } from "../utils/playerVisuals";
 
 const LEAGUE_OPTIONS = [
   "English Premier League",
@@ -9,6 +10,8 @@ const LEAGUE_OPTIONS = [
   "Italian Serie A",
   "German Bundesliga",
   "French Ligue 1",
+  "UEFA Champions League",
+  "South African Premier Soccer League",
 ];
 
 function getPlayerAge(dateBorn) {
@@ -29,7 +32,46 @@ function normalisePlayers(players) {
     .sort((left, right) => (left.strPlayer || "").localeCompare(right.strPlayer || ""));
 }
 
+function buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam) {
+  const details = playerDetails || selectedPlayer || {};
+  const providedBio = (details.strDescriptionEN || "").trim();
+  if (providedBio) return providedBio;
+
+  const name = details.strPlayer || selectedPlayer?.strPlayer || selectedPlayer?.name || "This player";
+  const nationality = details.strNationality || selectedPlayer?.strNationality || selectedPlayer?.nationality;
+  const position = details.strPosition || selectedPlayer?.strPosition || selectedPlayer?.position;
+  const team = details.strTeam || selectedPlayer?.strTeam || selectedTeam;
+  const status = details.strStatus || selectedPlayer?.strStatus;
+  const preferredSide = details.strSide;
+  const birthLocation = details.strBirthLocation;
+  const height = details.strHeight;
+  const weight = details.strWeight;
+
+  const summaryBits = [];
+  if (nationality) summaryBits.push(`${nationality} footballer`);
+  if (position) summaryBits.push(`who plays as a ${position}`);
+  if (team) summaryBits.push(`for ${team}`);
+
+  const traits = [];
+  if (height) traits.push(`height: ${height}`);
+  if (weight) traits.push(`weight: ${weight}`);
+  if (preferredSide) traits.push(`preferred side: ${preferredSide}`);
+  if (birthLocation) traits.push(`born in ${birthLocation}`);
+  if (status) traits.push(`status: ${status}`);
+
+  const intro = summaryBits.length > 0
+    ? `${name} is a ${summaryBits.join(" ")}.`
+    : `${name} is an active football player.`;
+
+  if (traits.length === 0) {
+    return `${intro} Detailed biography text is currently unavailable from the provider, but key player characteristics are shown above.`;
+  }
+
+  return `${intro} Player characteristics include ${traits.join(", ")}.`;
+}
+
 function Players() {
+  const location = useLocation();
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState(LEAGUE_OPTIONS[0]);
@@ -39,6 +81,30 @@ function Players() {
   const [playerDetails, setPlayerDetails] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
+  const [clubBadge, setClubBadge] = useState("");
+  const [pendingTopbarSelection, setPendingTopbarSelection] = useState(null);
+
+  useEffect(() => {
+    const prefillPlayerSearch = location.state?.prefillPlayerSearch || "";
+    const preselectTeam = location.state?.preselectTeam || "";
+    const preselectPlayerId = location.state?.preselectPlayerId || "";
+    const preselectPlayerName = location.state?.preselectPlayerName || "";
+
+    if (prefillPlayerSearch) {
+      setSearchTerm(prefillPlayerSearch);
+    }
+
+    if (preselectTeam) {
+      setSelectedTeam(preselectTeam);
+    }
+
+    if (preselectPlayerId || preselectPlayerName) {
+      setPendingTopbarSelection({
+        id: String(preselectPlayerId || ""),
+        name: String(preselectPlayerName || ""),
+      });
+    }
+  }, [location.state]);
 
   useEffect(() => {
     async function loadTeams() {
@@ -100,6 +166,60 @@ function Players() {
     loadPlayers();
   }, [selectedTeam]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadClubBadge() {
+      if (!selectedTeam) {
+        if (isMounted) {
+          setClubBadge("");
+        }
+        return;
+      }
+
+      try {
+        const team = await fetchTeamByName(selectedTeam);
+        if (!isMounted) return;
+
+        setClubBadge(team?.strTeamBadge || team?.strTeamLogo || "");
+      } catch (error) {
+        console.error("Error loading club badge:", error);
+        if (isMounted) {
+          setClubBadge("");
+        }
+      }
+    }
+
+    loadClubBadge();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTeam]);
+
+  useEffect(() => {
+    if (!pendingTopbarSelection || players.length === 0) {
+      return;
+    }
+
+    const selectedById = pendingTopbarSelection.id
+      ? players.find((player) => String(player.idPlayer || player.id || "") === pendingTopbarSelection.id)
+      : null;
+
+    const normalizedName = pendingTopbarSelection.name.trim().toLowerCase();
+    const selectedByName = normalizedName
+      ? players.find((player) => String(player.strPlayer || player.name || "").trim().toLowerCase() === normalizedName)
+      : null;
+
+    const nextSelection = selectedById || selectedByName || null;
+    if (!nextSelection) {
+      return;
+    }
+
+    handlePlayerClick(nextSelection);
+    setPendingTopbarSelection(null);
+  }, [pendingTopbarSelection, players]);
+
   const handlePlayerClick = async (player) => {
     setSelectedPlayer(player);
     setPlayerDetails(null);
@@ -120,7 +240,7 @@ function Players() {
     (player.strPlayer || player.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const seasonWindowLabel = "Coverage: 2023 to present";
+  const biographyText = buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam);
 
   return (
     <div className="home">
@@ -134,7 +254,7 @@ function Players() {
             </span>
             <h1 className="page-title">Players</h1>
           </div>
-          <p className="page-subtitle">Live current squad and player profile data sourced from major leagues, with {seasonWindowLabel.toLowerCase()}.</p>
+          <p className="page-subtitle">Live current squad and player profile data sourced from major leagues.</p>
         </div>
 
         <div className="dashboard-panel players-controls-panel">
@@ -181,11 +301,6 @@ function Players() {
           </div>
 
           <div className="control-group">
-            <label>Season Window</label>
-            <div className="team-select players-meta-pill">{seasonWindowLabel}</div>
-          </div>
-
-          <div className="control-group">
             <label>Last Refresh</label>
             <div className="team-select players-meta-pill">{lastUpdated || "Loading..."}</div>
           </div>
@@ -202,7 +317,7 @@ function Players() {
           <div className="players-list">
             {displayedPlayers.length > 0 ? (
               displayedPlayers.slice(0, 24).map((player) => {
-                const playerImage = getPlayerVisual(player, {
+                const playerImage = getPlayerProfileVisual(player, {
                   name: player.strPlayer,
                   team: player.strTeam || selectedTeam,
                 });
@@ -210,24 +325,36 @@ function Players() {
                 return (
                   <div
                     key={player.idPlayer || player.id}
-                    className="player-item player-overlay-card"
-                    style={{ backgroundImage: `url(${playerImage})` }}
+                    className="player-item player-profile-card"
                     onClick={() => handlePlayerClick(player)}
                   >
-                    <div className="player-overlay-content">
-                      <h3 className="player-overlay-name">{player.strPlayer || player.name}</h3>
-                      <p className="player-overlay-position">{player.strPosition || player.position || 'Unknown'}</p>
-                      <p className="player-overlay-meta">{player.strNationality || player.nationality || 'Unknown'} · {player.strTeam || selectedTeam || 'Unknown Club'}</p>
-                      <div className="player-overlay-stats">
-                        <span className="stat-item">
-                          <strong>Age:</strong> {getPlayerAge(player.dateBorn)}
-                        </span>
-                        <span className="stat-item">
-                          <strong>Height:</strong> {player.strHeight || 'N/A'}
-                        </span>
-                        <span className="stat-item">
-                          <strong>Status:</strong> {player.strStatus || 'Active'}
-                        </span>
+                    <div className="player-profile-card-media">
+                      <img
+                        src={playerImage}
+                        alt={player.strPlayer || player.name}
+                        className="player-profile-card-photo"
+                      />
+                      <div className="player-overlay-content player-profile-card-content">
+                        <h3 className="player-overlay-name">{player.strPlayer || player.name}</h3>
+                        <p className="player-overlay-position">{player.strPosition || player.position || 'Unknown'}</p>
+                        <div className="player-overlay-meta-row">
+                          <img
+                            src={clubBadge || "/assets/img/logo.png"}
+                            alt={`${player.strTeam || selectedTeam || "Club"} logo`}
+                            className="player-overlay-club-badge"
+                          />
+                          <p className="player-overlay-meta">{player.strTeam || selectedTeam || 'Unknown Club'}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="player-overlay-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePlayerClick(player);
+                          }}
+                        >
+                          View Player
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -250,7 +377,7 @@ function Players() {
               <div className="modal-header">
                 <div className="modal-player-info">
                   <img
-                    src={getPlayerVisual(playerDetails || selectedPlayer, {
+                    src={getPlayerProfileVisual(playerDetails || selectedPlayer, {
                       name: selectedPlayer.strPlayer,
                       team: selectedPlayer.strTeam || selectedTeam,
                     })}
@@ -260,6 +387,14 @@ function Players() {
                   <div>
                     <h2>{selectedPlayer.strPlayer || selectedPlayer.name}</h2>
                     <p className="modal-player-position">{selectedPlayer.strPosition || selectedPlayer.position}</p>
+                    <div className="modal-player-club-row">
+                      <img
+                        src={clubBadge || "/assets/img/logo.png"}
+                        alt={`${selectedPlayer.strTeam || selectedTeam || "Club"} logo`}
+                        className="modal-player-club-badge"
+                      />
+                      <span>{selectedPlayer.strTeam || selectedTeam || "Unknown Club"}</span>
+                    </div>
                     <p className="modal-player-nationality">{selectedPlayer.strNationality || selectedPlayer.nationality}</p>
                   </div>
                 </div>
@@ -317,14 +452,12 @@ function Players() {
                       </div>
                     </div>
 
-                    {playerDetails.strDescriptionEN && (
-                      <div className="detail-section">
-                        <h3>Biography</h3>
-                        <p className="player-description">
-                          {playerDetails.strDescriptionEN}
-                        </p>
-                      </div>
-                    )}
+                    <div className="detail-section">
+                      <h3>Biography</h3>
+                      <p className="player-description">
+                        {biographyText}
+                      </p>
+                    </div>
 
                     {playerDetails.strThumb && (
                       <div className="detail-section">

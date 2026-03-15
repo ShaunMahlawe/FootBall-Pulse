@@ -11,6 +11,8 @@ const NAV_LINKS = [
 
 function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= 1024);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.body.classList.contains("dark") || false;
   });
@@ -19,25 +21,74 @@ function Sidebar() {
   const location = useLocation();
 
   useEffect(() => {
+    const handleViewportResize = () => {
+      const mobile = window.innerWidth <= 1024;
+      setIsMobileView(mobile);
+
+      if (!mobile) {
+        setIsMobileOpen(false);
+      }
+    };
+
+    handleViewportResize();
+    window.addEventListener("resize", handleViewportResize);
+
+    return () => {
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, []);
+
+  useEffect(() => {
     document.body.classList.toggle("dark", isDarkMode);
   }, [isDarkMode]);
 
   useEffect(() => {
     const handleOpenSearch = () => {
-      setIsCollapsed(false);
+      if (isMobileView) {
+        setIsMobileOpen(true);
+      } else {
+        setIsCollapsed(false);
+      }
       requestAnimationFrame(() => {
         searchInputRef.current?.focus();
       });
     };
 
+    const handleToggleSidebar = () => {
+      if (isMobileView) {
+        setIsMobileOpen((prev) => !prev);
+      } else {
+        setIsCollapsed((prev) => !prev);
+      }
+    };
+
+    const handleCloseSidebar = () => {
+      setIsMobileOpen(false);
+    };
+
     window.addEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+    window.addEventListener("footballpulse:toggleSidebar", handleToggleSidebar);
+    window.addEventListener("footballpulse:closeSidebar", handleCloseSidebar);
 
     return () => {
       window.removeEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+      window.removeEventListener("footballpulse:toggleSidebar", handleToggleSidebar);
+      window.removeEventListener("footballpulse:closeSidebar", handleCloseSidebar);
     };
-  }, []);
+  }, [isMobileView]);
+
+  useEffect(() => {
+    if (isMobileView) {
+      setIsMobileOpen(false);
+    }
+  }, [isMobileView, location.pathname]);
 
   const toggleSidebar = () => {
+    if (isMobileView) {
+      setIsMobileOpen((prev) => !prev);
+      return;
+    }
+
     setIsCollapsed((prev) => !prev);
   };
 
@@ -46,7 +97,11 @@ function Sidebar() {
   };
 
   const openSearch = () => {
-    setIsCollapsed(false);
+    if (isMobileView) {
+      setIsMobileOpen(true);
+    } else {
+      setIsCollapsed(false);
+    }
     requestAnimationFrame(() => {
       searchInputRef.current?.focus();
     });
@@ -57,7 +112,9 @@ function Sidebar() {
   );
 
   return (
-    <nav className={`sidebar ${isCollapsed ? "close" : ""}`}>
+    <>
+      {isMobileView && isMobileOpen ? <div className="sidebar-backdrop" onClick={() => setIsMobileOpen(false)}></div> : null}
+      <nav className={`sidebar ${isCollapsed ? "close" : ""} ${isMobileOpen ? "mobile-open" : ""}`}>
       <header>
         <div className="image-text">
           <span className="image">
@@ -130,7 +187,8 @@ function Sidebar() {
           </li>
         </div>
       </div>
-    </nav>
+      </nav>
+    </>
   );
 }
 

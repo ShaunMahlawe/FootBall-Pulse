@@ -1,22 +1,39 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { fetchTeams, fetchTeamDetails } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
 
+const LEAGUE_OPTIONS = [
+  "English Premier League",
+  "Spanish La Liga",
+  "Italian Serie A",
+  "German Bundesliga",
+  "French Ligue 1",
+  "UEFA Champions League",
+  "South African Premier Soccer League",
+];
+
 function Teams() {
+  const location = useLocation();
   const [teams, setTeams] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState("English Premier League");
   const [loading, setLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [teamDetails, setTeamDetails] = useState(null);
+  const [teamSearchTerm, setTeamSearchTerm] = useState("");
 
-  const leagues = [
-    "English Premier League",
-    "Spanish La Liga",
-    "Italian Serie A",
-    "German Bundesliga",
-    "French Ligue 1",
-    "UEFA Champions League"
-  ];
+  useEffect(() => {
+    const prefillLeague = location.state?.preselectLeague || "";
+    const prefillTeamSearch = location.state?.prefillTeamSearch || "";
+
+    if (prefillLeague && LEAGUE_OPTIONS.includes(prefillLeague)) {
+      setSelectedLeague(prefillLeague);
+    }
+
+    if (prefillTeamSearch) {
+      setTeamSearchTerm(prefillTeamSearch);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     async function loadTeams() {
@@ -49,6 +66,10 @@ function Teams() {
     setTeamDetails(null);
   };
 
+  const filteredTeams = teams.filter((team) =>
+    (team.strTeam || "").toLowerCase().includes(teamSearchTerm.trim().toLowerCase())
+  );
+
   return (
     <div className="home">
       <Topbar />
@@ -74,12 +95,23 @@ function Teams() {
               onChange={(e) => setSelectedLeague(e.target.value)}
               className="league-select"
             >
-              {leagues.map(league => (
+              {LEAGUE_OPTIONS.map(league => (
                 <option key={league} value={league}>
                   {league}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="selector-group">
+            <label>Search Team:</label>
+            <input
+              type="search"
+              className="player-search"
+              placeholder="Search by team name..."
+              value={teamSearchTerm}
+              onChange={(event) => setTeamSearchTerm(event.target.value)}
+            />
           </div>
         </div>
         </div>
@@ -92,8 +124,8 @@ function Teams() {
         ) : (
           <div className="dashboard-panel teams-list-panel">
           <div className="teams-list">
-            {teams.length > 0 ? (
-              teams.map(team => (
+            {filteredTeams.length > 0 ? (
+              filteredTeams.map(team => (
                 <div
                   key={team.idTeam}
                   className="team-item"
@@ -125,8 +157,8 @@ function Teams() {
               ))
             ) : (
               <div className="no-teams">
-                <p>No teams found for {selectedLeague}.</p>
-                <p>Try selecting a different league.</p>
+                <p>{teamSearchTerm ? `No teams found for "${teamSearchTerm}".` : `No teams found for ${selectedLeague}.`}</p>
+                <p>{teamSearchTerm ? "Try a different search term." : "Try selecting a different league."}</p>
               </div>
             )}
           </div>

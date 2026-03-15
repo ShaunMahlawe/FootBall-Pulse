@@ -48,6 +48,8 @@ const LEAGUE_OPTIONS = [
   { id: 4332, name: "Italian Serie A", country: "Italy", spotlightTeam: "Inter", label: "Serie A" },
   { id: 4331, name: "German Bundesliga", country: "Germany", spotlightTeam: "Bayern Munich", label: "Bundesliga" },
   { id: 4334, name: "French Ligue 1", country: "France", spotlightTeam: "Paris Saint-Germain", label: "Ligue 1" },
+  { id: 4480, name: "UEFA Champions League", country: "Europe", spotlightTeam: "Real Madrid", label: "Champions League" },
+  { id: 4620, name: "South African Premier Soccer League", country: "South Africa", spotlightTeam: "Mamelodi Sundowns", label: "PSL" },
 ];
 
 const FALLBACK_PLAYER_QUERY = "Henrikh Mkhitaryan";
@@ -83,6 +85,60 @@ function pickSpotlightCandidate(players) {
     validPlayers[0] ||
     null
   );
+}
+
+function isSamePlayer(left, right) {
+  if (!left || !right) return false;
+
+  const leftId = String(left.idPlayer || left.id || "").trim();
+  const rightId = String(right.idPlayer || right.id || "").trim();
+  if (leftId && rightId) {
+    return leftId === rightId;
+  }
+
+  const leftName = String(left.strPlayer || left.name || "").trim().toLowerCase();
+  const rightName = String(right.strPlayer || right.name || "").trim().toLowerCase();
+  const leftTeam = String(left.strTeam || left.team || "").trim().toLowerCase();
+  const rightTeam = String(right.strTeam || right.team || "").trim().toLowerCase();
+
+  return Boolean(leftName) && leftName === rightName && leftTeam === rightTeam;
+}
+
+function pickDistinctComparisonCandidate(players, spotlight) {
+  const validPlayers = (players || []).filter(
+    (player) =>
+      player &&
+      player.strStatus !== "Coaching" &&
+      player.strPosition &&
+      !/coach/i.test(player.strPosition) &&
+      !isSamePlayer(player, spotlight)
+  );
+
+  return (
+    validPlayers.find((player) => player.strPosition === "Forward" && (player.strCutout || player.strThumb)) ||
+    validPlayers.find((player) => player.strPosition === "Midfielder" && (player.strCutout || player.strThumb)) ||
+    validPlayers.find((player) => player.strCutout || player.strThumb) ||
+    validPlayers[0] ||
+    null
+  );
+}
+
+function ensureDistinctComparisonPlayer(candidate, spotlight) {
+  if (candidate && !isSamePlayer(candidate, spotlight)) {
+    return candidate;
+  }
+
+  return {
+    idPlayer: "comparison-fallback",
+    strPlayer: "Comparison Player",
+    strPosition: "Midfielder",
+    strTeam: spotlight?.team ? `Opponent of ${spotlight.team}` : "Opponent",
+    strNationality: "Unknown",
+    strStatus: "Active",
+    strHeight: "Unknown",
+    strWeight: "Unknown",
+    strDescriptionEN: "Comparison player data is currently unavailable. Showing a distinct fallback profile.",
+  };
 }
 
 function shortDescription(text) {
@@ -142,12 +198,21 @@ function buildSpotlightPlayer(player) {
   };
 }
 
-async function fetchApiFallbackPlayer() {
+async function fetchApiFallbackPlayer(excludedPlayer = null) {
   try {
     const results = await searchPlayers(FALLBACK_PLAYER_QUERY);
-    const preferredPlayer = results.find(
+    let preferredPlayer = results.find(
       (player) => (player?.strPlayer || "").toLowerCase() === FALLBACK_PLAYER_QUERY.toLowerCase()
-    ) || results[0];
+    ) || results[0] || null;
+
+    if (excludedPlayer && isSamePlayer(preferredPlayer, excludedPlayer)) {
+      preferredPlayer = (results || []).find((player) => !isSamePlayer(player, excludedPlayer)) || null;
+    }
+
+    if (!preferredPlayer) {
+      const secondaryResults = await searchPlayers("Kevin De Bruyne");
+      preferredPlayer = (secondaryResults || []).find((player) => !isSamePlayer(player, excludedPlayer)) || null;
+    }
 
     if (!preferredPlayer) {
       return null;
@@ -180,13 +245,83 @@ function Dashboard() {
   const [feedType, setFeedType] = useState("upcoming");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [dashboardNotice, setDashboardNotice] = useState("");
+  const [matchesLoading, setMatchesLoading] = useState(false);
   const [comparisonPlayer, setComparisonPlayer] = useState(() => buildSpotlightPlayer(null));
+  const [isDarkMode, setIsDarkMode] = useState(() => document.body.classList.contains("dark"));
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkMode(document.body.classList.contains("dark"));
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const passingRadarPalette = useMemo(
+    () =>
+      isDarkMode
+        ? {
+            line: "rgba(255, 255, 255, 0.9)",
+            grid: "rgba(255, 255, 255, 0.16)",
+            label: "rgba(255, 255, 255, 0.86)",
+            point: "#ffffff",
+          }
+        : {
+            line: "rgba(15, 23, 42, 0.8)",
+            grid: "rgba(15, 23, 42, 0.2)",
+            label: "rgba(15, 23, 42, 0.86)",
+            point: "#dc2626",
+          },
+    [isDarkMode]
+  );
+
+  const comparisonChartPalette = useMemo(
+    () =>
+      isDarkMode
+        ? {
+            legend: "#f4f4f5",
+            axisLabel: "rgba(255, 255, 255, 0.78)",
+            axisTick: "rgba(255, 255, 255, 0.62)",
+            grid: "rgba(255, 255, 255, 0.08)",
+            polarGrid: "rgba(255, 255, 255, 0.1)",
+            polarBorder: "rgba(255, 255, 255, 0.16)",
+            tooltipBg: "rgba(12, 12, 12, 0.92)",
+            tooltipTitle: "#ffffff",
+            tooltipBody: "#ffffff",
+          }
+        : {
+            legend: "#111827",
+            axisLabel: "rgba(17, 24, 39, 0.88)",
+            axisTick: "rgba(17, 24, 39, 0.74)",
+            grid: "rgba(17, 24, 39, 0.16)",
+            polarGrid: "rgba(17, 24, 39, 0.2)",
+            polarBorder: "rgba(17, 24, 39, 0.28)",
+            tooltipBg: "rgba(17, 24, 39, 0.96)",
+            tooltipTitle: "#ffffff",
+            tooltipBody: "#ffffff",
+          },
+    [isDarkMode]
+  );
 
   const featuredMatch = useMemo(
     () => matches.find((match) => match.idEvent === activeMatchId) || matches[0] || null,
     [activeMatchId, matches]
   );
-  const liveMatches = useMemo(() => matches.slice(0, 2), [matches]);
+  const liveOnlyMatches = useMemo(
+    () => matches.filter((match) => (match?.strStatus || "").toUpperCase() === "LIVE"),
+    [matches]
+  );
+  const liveMatches = useMemo(
+    () => (liveOnlyMatches.length > 0 ? liveOnlyMatches : matches).slice(0, 2),
+    [liveOnlyMatches, matches]
+  );
   const latestMatches = useMemo(() => matches.slice(0, 5), [matches]);
   const normalizeTeamName = useCallback((name) => (name || "").trim().toLowerCase(), []);
 
@@ -246,9 +381,9 @@ function Dashboard() {
           label: `${spotlightPlayer.name} profile`,
           data: spotlightPlayer.performanceProfile.map((entry) => entry.value),
           backgroundColor: "rgba(220, 38, 38, 0.22)",
-          borderColor: "rgba(255, 255, 255, 0.95)",
+          borderColor: passingRadarPalette.line,
           borderWidth: 2,
-          pointBackgroundColor: "#ffffff",
+          pointBackgroundColor: passingRadarPalette.point,
           pointBorderColor: "#dc2626",
           pointBorderWidth: 2,
           pointRadius: 4,
@@ -256,7 +391,7 @@ function Dashboard() {
         },
       ],
     }),
-    [spotlightPlayer]
+    [passingRadarPalette, spotlightPlayer]
   );
   const radarOptions = useMemo(
     () => ({
@@ -293,13 +428,13 @@ function Dashboard() {
             stepSize: 20,
           },
           grid: {
-            color: "rgba(255, 255, 255, 0.12)",
+            color: passingRadarPalette.grid,
           },
           angleLines: {
-            color: "rgba(255, 255, 255, 0.12)",
+            color: passingRadarPalette.grid,
           },
           pointLabels: {
-            color: "rgba(255, 255, 255, 0.78)",
+            color: passingRadarPalette.label,
             font: {
               size: 11,
               weight: "600",
@@ -308,7 +443,7 @@ function Dashboard() {
         },
       },
     }),
-    []
+    [passingRadarPalette]
   );
 
   const comparisonMetrics = useMemo(() => {
@@ -365,18 +500,25 @@ function Dashboard() {
         {
           label: spotlightPlayer.name,
           data: spotlightPlayer.performanceProfile.map((entry) => entry.value),
-          backgroundColor: [
-            "rgba(220, 38, 38, 0.45)",
-            "rgba(245, 158, 11, 0.45)",
-            "rgba(59, 130, 246, 0.45)",
-            "rgba(16, 185, 129, 0.45)",
-          ],
-          borderColor: "rgba(255, 255, 255, 0.15)",
+          backgroundColor: isDarkMode
+            ? [
+                "rgba(220, 38, 38, 0.48)",
+                "rgba(245, 158, 11, 0.46)",
+                "rgba(59, 130, 246, 0.46)",
+                "rgba(16, 185, 129, 0.46)",
+              ]
+            : [
+                "rgba(220, 38, 38, 0.58)",
+                "rgba(245, 158, 11, 0.56)",
+                "rgba(59, 130, 246, 0.56)",
+                "rgba(16, 185, 129, 0.56)",
+              ],
+          borderColor: comparisonChartPalette.polarBorder,
           borderWidth: 1,
         },
       ],
     }),
-    [spotlightPlayer.performanceProfile, spotlightPlayer.name]
+    [comparisonChartPalette.polarBorder, isDarkMode, spotlightPlayer.performanceProfile, spotlightPlayer.name]
   );
 
   const dashboardComparisonChartOptions = useMemo(
@@ -391,31 +533,31 @@ function Dashboard() {
         legend: {
           position: "bottom",
           labels: {
-            color: "#f4f4f5",
+            color: comparisonChartPalette.legend,
             padding: 16,
             font: { size: 11, weight: "600" },
           },
         },
         tooltip: {
-          backgroundColor: "rgba(12, 12, 12, 0.92)",
-          titleColor: "#ffffff",
-          bodyColor: "#ffffff",
+          backgroundColor: comparisonChartPalette.tooltipBg,
+          titleColor: comparisonChartPalette.tooltipTitle,
+          bodyColor: comparisonChartPalette.tooltipBody,
         },
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: "rgba(255, 255, 255, 0.78)", font: { size: 11, weight: "600" } },
+          ticks: { color: comparisonChartPalette.axisLabel, font: { size: 11, weight: "600" } },
         },
         y: {
           beginAtZero: true,
           max: 100,
-          grid: { color: "rgba(255, 255, 255, 0.08)" },
-          ticks: { color: "rgba(255, 255, 255, 0.62)", font: { size: 11 } },
+          grid: { color: comparisonChartPalette.grid },
+          ticks: { color: comparisonChartPalette.axisTick, font: { size: 11 } },
         },
       },
     }),
-    []
+    [comparisonChartPalette]
   );
 
   const dashboardComparisonPolarOptions = useMemo(
@@ -430,29 +572,29 @@ function Dashboard() {
         legend: {
           position: "bottom",
           labels: {
-            color: "#f4f4f5",
+            color: comparisonChartPalette.legend,
             padding: 16,
             font: { size: 11, weight: "600" },
           },
         },
         tooltip: {
-          backgroundColor: "rgba(12, 12, 12, 0.92)",
-          titleColor: "#ffffff",
-          bodyColor: "#ffffff",
+          backgroundColor: comparisonChartPalette.tooltipBg,
+          titleColor: comparisonChartPalette.tooltipTitle,
+          bodyColor: comparisonChartPalette.tooltipBody,
         },
       },
       scales: {
         r: {
           beginAtZero: true,
           max: 100,
-          grid: { color: "rgba(255, 255, 255, 0.08)" },
-          angleLines: { color: "rgba(255, 255, 255, 0.08)" },
-          pointLabels: { color: "rgba(255, 255, 255, 0.78)", font: { size: 11, weight: "600" } },
+          grid: { color: comparisonChartPalette.polarGrid },
+          angleLines: { color: comparisonChartPalette.polarGrid },
+          pointLabels: { color: comparisonChartPalette.axisLabel, font: { size: 11, weight: "600" } },
           ticks: { display: false },
         },
       },
     }),
-    []
+    [comparisonChartPalette]
   );
 
   const getLeagueBadge = (leagueId) => {
@@ -599,15 +741,29 @@ function Dashboard() {
       }
     }, [normalizeTeamName]);
 
-  const loadMatches = useCallback(async ({ manualRefresh = false } = {}) => {
+  const loadMatches = useCallback(async () => {
+    setMatchesLoading(true);
+    setMatches([]);
+    setActiveMatchId(null);
     try {
-      let source = "live";
-      let results = await fetchLiveMatches(selectedLeague.name);
+      const [liveResults, upcomingResults] = await Promise.all([
+        fetchLiveMatches(selectedLeague.name),
+        fetchUpcomingMatches(selectedLeague.id),
+      ]);
 
-      if (!results || results.length === 0) {
-        results = await fetchUpcomingMatches(selectedLeague.id);
-        source = "upcoming";
-      }
+      const live = liveResults || [];
+      const upcoming = upcomingResults || [];
+
+      const merged = [...live, ...upcoming].reduce((acc, match) => {
+        if (!match?.idEvent) return acc;
+        if (!acc.find((entry) => entry.idEvent === match.idEvent)) {
+          acc.push(match);
+        }
+        return acc;
+      }, []);
+
+      const results = merged;
+      const source = live.length > 0 ? "live" : "upcoming";
 
       setFeedType(source);
       setMatches(results);
@@ -618,6 +774,8 @@ function Dashboard() {
     } catch (error) {
       console.error("Error loading matches:", error);
       setDashboardNotice("Unable to refresh matches right now. Please try again.");
+    } finally {
+      setMatchesLoading(false);
     }
   }, [cacheTeamsForMatches, selectedLeague.id, selectedLeague.name]);
 
@@ -650,12 +808,23 @@ function Dashboard() {
   }, [loadLeagueContext, loadMatches]);
 
   useEffect(() => {
+    const refreshInterval = feedType === "live" ? 20000 : 90000;
+    const intervalId = setInterval(() => {
+      loadMatches();
+    }, refreshInterval);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [feedType, loadMatches]);
+
+  useEffect(() => {
     const handleGlobalRefresh = () => {
       clearApiCache();
       teamCacheRef.current = {};
       teamBadgeByNameRef.current = {};
       loadLeagueContext();
-      loadMatches({ manualRefresh: true });
+      loadMatches();
     };
 
     window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
@@ -712,28 +881,43 @@ function Dashboard() {
           : homeTeam || awayTeam || selectedLeague.spotlightTeam;
 
       if (!comparisonTeam) {
-        const fallbackPlayer = await fetchApiFallbackPlayer();
-        setComparisonPlayer(buildSpotlightPlayer(fallbackPlayer));
+        const fallbackPlayer = await fetchApiFallbackPlayer(spotlightPlayer);
+        setComparisonPlayer(buildSpotlightPlayer(ensureDistinctComparisonPlayer(fallbackPlayer, spotlightPlayer)));
         return;
       }
 
       try {
         const playersData = await fetchPlayers(comparisonTeam);
-        const preferredPlayer = pickSpotlightCandidate(playersData);
+        const preferredPlayer = pickDistinctComparisonCandidate(playersData, spotlightPlayer);
+
+        if (!preferredPlayer) {
+          const fallbackPlayer = await fetchApiFallbackPlayer(spotlightPlayer);
+          setComparisonPlayer(buildSpotlightPlayer(ensureDistinctComparisonPlayer(fallbackPlayer, spotlightPlayer)));
+          return;
+        }
+
         const playerDetails = preferredPlayer?.idPlayer
           ? await fetchPlayerDetails(preferredPlayer.idPlayer)
           : null;
 
-        setComparisonPlayer(buildSpotlightPlayer(playerDetails || preferredPlayer));
+        const resolvedComparison = playerDetails || preferredPlayer;
+
+        if (isSamePlayer(resolvedComparison, spotlightPlayer)) {
+          const fallbackPlayer = await fetchApiFallbackPlayer(spotlightPlayer);
+          setComparisonPlayer(buildSpotlightPlayer(ensureDistinctComparisonPlayer(fallbackPlayer, spotlightPlayer)));
+          return;
+        }
+
+        setComparisonPlayer(buildSpotlightPlayer(ensureDistinctComparisonPlayer(resolvedComparison, spotlightPlayer)));
       } catch (error) {
         console.error("Error loading comparison player:", error);
-        const fallbackPlayer = await fetchApiFallbackPlayer();
-        setComparisonPlayer(buildSpotlightPlayer(fallbackPlayer));
+        const fallbackPlayer = await fetchApiFallbackPlayer(spotlightPlayer);
+        setComparisonPlayer(buildSpotlightPlayer(ensureDistinctComparisonPlayer(fallbackPlayer, spotlightPlayer)));
       }
     }
 
     loadComparisonPlayer();
-  }, [featuredMatch, selectedLeague.spotlightTeam, spotlightPlayer.team]);
+  }, [featuredMatch, selectedLeague.spotlightTeam, spotlightPlayer]);
 
   return (
     <div className="home">
@@ -765,7 +949,12 @@ function Dashboard() {
               <p className="dashboard-updated-at">{getLastUpdatedLabel()}</p>
 
               <div className="live-score-list">
-                {liveMatches.length > 0 ? (
+                {matchesLoading ? (
+                  <div className="matches-loading-state">
+                    <div className="loading-spinner"></div>
+                    <p>Loading {selectedLeague.label} matches…</p>
+                  </div>
+                ) : liveMatches.length > 0 ? (
                   liveMatches.map((match) => (
                     <button
                       key={match.idEvent}
@@ -857,10 +1046,7 @@ function Dashboard() {
                   </button>
                 </div>
 
-                <div className="spotlight-stage">
-                  <div className="spotlight-silhouette">
-                    <img src={spotlightPlayer.image} alt={spotlightPlayer.name} />
-                  </div>
+                <div className="spotlight-stage" style={{ backgroundImage: `url(${spotlightPlayer.image})` }}>
                   <div className="spotlight-orb">
                     <img src={spotlightClubBadge} alt={`${spotlightPlayer.team} badge`} />
                   </div>
@@ -925,7 +1111,12 @@ function Dashboard() {
               </div>
 
               <div className="latest-match-list">
-                {latestMatches.length > 0 ? (
+                {matchesLoading ? (
+                  <div className="matches-loading-state">
+                    <div className="loading-spinner"></div>
+                    <p>Fetching {selectedLeague.label} fixtures…</p>
+                  </div>
+                ) : latestMatches.length > 0 ? (
                   latestMatches.map((match) => (
                     <button
                       key={match.idEvent}
@@ -964,6 +1155,36 @@ function Dashboard() {
                   <h2>Comparison Snapshot</h2>
                   <p>{spotlightPlayer.name} vs {comparisonPlayer.name}</p>
                 </div>
+              </div>
+
+              <div className="comparison-player-cards">
+                <article className="comparison-player-card comparison-player-card-left">
+                  <img
+                    src={spotlightPlayer.image || "/assets/img/User.jpg"}
+                    alt={spotlightPlayer.name}
+                    className="comparison-player-card-image"
+                  />
+                  <div className="comparison-player-card-copy">
+                    <strong>{spotlightPlayer.name}</strong>
+                    <span>{spotlightPlayer.position}</span>
+                    <small>{spotlightPlayer.team}</small>
+                  </div>
+                </article>
+
+                <span className="comparison-player-vs">VS</span>
+
+                <article className="comparison-player-card comparison-player-card-right">
+                  <img
+                    src={comparisonPlayer.image || "/assets/img/User.jpg"}
+                    alt={comparisonPlayer.name}
+                    className="comparison-player-card-image"
+                  />
+                  <div className="comparison-player-card-copy">
+                    <strong>{comparisonPlayer.name}</strong>
+                    <span>{comparisonPlayer.position}</span>
+                    <small>{comparisonPlayer.team}</small>
+                  </div>
+                </article>
               </div>
 
               <div className="charts-grid dashboard-comparison-charts">

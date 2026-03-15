@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Bar, Pie, PolarArea } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -14,7 +15,7 @@ import {
   LineElement,
   Filler
 } from "chart.js";
-import { clearApiCache, fetchLeagues, fetchPlayers, fetchTeamByName, fetchTeams } from "../api/apiFootball";
+import { clearApiCache, fetchLeagues, fetchPlayers, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
 import { getPlayerVisual } from "../utils/playerVisuals";
 
@@ -57,7 +58,36 @@ function getShotAccuracy(player) {
   return `${((onTargetShots / totalShots) * 100).toFixed(1)}%`;
 }
 
+function isEligibleComparisonPlayer(player) {
+  const position = String(player?.position || player?.strPosition || "").trim().toLowerCase();
+  const status = String(player?.status || player?.strStatus || "").trim().toLowerCase();
+
+  if (!position) return false;
+  if (position === "coaching" || status === "coaching") return false;
+  if (position.includes("coach")) return false;
+
+  return true;
+}
+
+function isSamePlayer(left, right) {
+  if (!left || !right) return false;
+
+  const leftId = String(left.id || "").trim();
+  const rightId = String(right.id || "").trim();
+  if (leftId && rightId) {
+    return leftId === rightId;
+  }
+
+  const leftName = String(left.name || "").trim().toLowerCase();
+  const rightName = String(right.name || "").trim().toLowerCase();
+  const leftClub = String(left.club || "").trim().toLowerCase();
+  const rightClub = String(right.club || "").trim().toLowerCase();
+
+  return Boolean(leftName) && leftName === rightName && leftClub === rightClub;
+}
+
 function Analytics() {
+  const location = useLocation();
   const [selectedPlayers, setSelectedPlayers] = useState(["", ""]);
   const [playersBySide, setPlayersBySide] = useState([[], []]);
   const [leagues, setLeagues] = useState([]);
@@ -69,13 +99,37 @@ function Analytics() {
   const [selectedClubs, setSelectedClubs] = useState(["", ""]);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingSides, setLoadingSides] = useState([false, false]);
-  const [clubBadges, setClubBadges] = useState({});
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [isDarkMode, setIsDarkMode] = useState(() => document.body.classList.contains("dark"));
+
+  useEffect(() => {
+    const prefillLeague = location.state?.prefillLeague || "";
+    if (!prefillLeague) return;
+
+    setSelectedLeagues((prev) => [
+      prefillLeague || prev[0],
+      prefillLeague || prev[1],
+    ]);
+  }, [location.state]);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkMode(document.body.classList.contains("dark"));
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const handleGlobalRefresh = () => {
       clearApiCache();
-      setClubBadges({});
       setRefreshNonce((value) => value + 1);
     };
 
@@ -245,10 +299,12 @@ function Analytics() {
           }
         }));
 
-        setPlayersBySide((prev) => [formattedPlayers, prev[1]]);
+        const eligiblePlayers = formattedPlayers.filter(isEligibleComparisonPlayer);
+
+        setPlayersBySide((prev) => [eligiblePlayers, prev[1]]);
 
         setSelectedPlayers((prev) => {
-          const playerIds = formattedPlayers.map((player) => player.id);
+          const playerIds = eligiblePlayers.map((player) => player.id);
           const firstId = playerIds.includes(prev[0]) ? prev[0] : playerIds[0] || "";
           return [firstId, prev[1]];
         });
@@ -308,10 +364,12 @@ function Analytics() {
           }
         }));
 
-        setPlayersBySide((prev) => [prev[0], formattedPlayers]);
+        const eligiblePlayers = formattedPlayers.filter(isEligibleComparisonPlayer);
+
+        setPlayersBySide((prev) => [prev[0], eligiblePlayers]);
 
         setSelectedPlayers((prev) => {
-          const playerIds = formattedPlayers.map((player) => player.id);
+          const playerIds = eligiblePlayers.map((player) => player.id);
           const secondId = playerIds.includes(prev[1]) ? prev[1] : playerIds[0] || "";
           return [prev[0], secondId];
         });
@@ -344,40 +402,40 @@ function Analytics() {
   const player2ShotAccuracy = getShotAccuracy(selectedPlayer2);
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadClubBadges() {
-      const clubs = [selectedPlayer1?.club, selectedPlayer2?.club].filter(Boolean);
-      const uniqueClubs = [...new Set(clubs)];
-      const missingClubs = uniqueClubs.filter((club) => !clubBadges[club]);
-
-      if (missingClubs.length === 0) return;
-
-      const entries = await Promise.all(
-        missingClubs.map(async (club) => {
-          const team = await fetchTeamByName(club);
-          const badge = team?.strTeamBadge || team?.strTeamLogo || null;
-          return [club, badge];
-        })
-      );
-
-      if (!isMounted) return;
-
-      setClubBadges((prev) => {
-        const next = { ...prev };
-        entries.forEach(([club, badge]) => {
-          next[club] = badge;
-        });
-        return next;
-      });
+    if (!selectedPlayer1 || !selectedPlayer2 || !isSamePlayer(selectedPlayer1, selectedPlayer2)) {
+      return;
     }
 
-    loadClubBadges();
+    const alternative = playersBySide[1].find((candidate) => !isSamePlayer(candidate, selectedPlayer1));
+    if (alternative?.id) {
+      setSelectedPlayers((prev) => [prev[0], alternative.id]);
+    }
+  }, [playersBySide, selectedPlayer1, selectedPlayer2]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedPlayer1?.club, selectedPlayer2?.club, clubBadges]);
+  const handlePlayerSelection = (sideIndex, playerId) => {
+    if (sideIndex === 0) {
+      const nextLeft = playersBySide[0].find((player) => player.id === playerId);
+      const currentRight = playersBySide[1].find((player) => player.id === selectedPlayers[1]);
+      if (nextLeft && currentRight && isSamePlayer(nextLeft, currentRight)) {
+        const alternativeRight = playersBySide[1].find((candidate) => !isSamePlayer(candidate, nextLeft));
+        setSelectedPlayers([playerId, alternativeRight?.id || selectedPlayers[1]]);
+        return;
+      }
+
+      setSelectedPlayers([playerId, selectedPlayers[1]]);
+      return;
+    }
+
+    const nextRight = playersBySide[1].find((player) => player.id === playerId);
+    const currentLeft = playersBySide[0].find((player) => player.id === selectedPlayers[0]);
+    if (nextRight && currentLeft && isSamePlayer(currentLeft, nextRight)) {
+      const alternativeRight = playersBySide[1].find((candidate) => !isSamePlayer(candidate, currentLeft));
+      setSelectedPlayers([selectedPlayers[0], alternativeRight?.id || playerId]);
+      return;
+    }
+
+    setSelectedPlayers([selectedPlayers[0], playerId]);
+  };
 
   // Show loading state
   if (loading) {
@@ -495,16 +553,49 @@ function Analytics() {
         position: 'bottom',
         labels: {
           padding: 20,
-          font: { size: 12, weight: '500' }
+          color: isDarkMode ? "rgba(248, 250, 252, 0.9)" : "rgba(15, 23, 42, 0.88)",
+          font: { size: 12, weight: '600' }
         }
       },
       tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.94)' : 'rgba(17, 24, 39, 0.94)',
         titleColor: '#ffffff',
         bodyColor: '#ffffff',
       }
+    },
+    scales: {
+      x: {
+        ticks: {
+          color: isDarkMode ? "rgba(226, 232, 240, 0.86)" : "rgba(15, 23, 42, 0.84)",
+          font: { size: 11, weight: "600" },
+        },
+        grid: {
+          color: isDarkMode ? "rgba(148, 163, 184, 0.16)" : "rgba(15, 23, 42, 0.08)",
+        },
+      },
+      y: {
+        ticks: {
+          color: isDarkMode ? "rgba(226, 232, 240, 0.84)" : "rgba(15, 23, 42, 0.82)",
+          font: { size: 11, weight: "600" },
+        },
+        grid: {
+          color: isDarkMode ? "rgba(148, 163, 184, 0.14)" : "rgba(15, 23, 42, 0.08)",
+        },
+      },
     }
   };
+
+  const leftStats = selectedPlayer1?.stats || {};
+  const rightStats = selectedPlayer2?.stats || {};
+  const comparisonInsights = [
+    { label: "Goals", left: leftStats.goals || 0, right: rightStats.goals || 0 },
+    { label: "Assists", left: leftStats.assists || 0, right: rightStats.assists || 0 },
+    { label: "Passes", left: leftStats.passes || 0, right: rightStats.passes || 0 },
+    { label: "Tackles", left: leftStats.tackles || 0, right: rightStats.tackles || 0 },
+  ].map((metric) => ({
+    ...metric,
+    winner: metric.left === metric.right ? "draw" : metric.left > metric.right ? "left" : "right",
+  }));
 
   return (
     <div className="home">
@@ -518,7 +609,29 @@ function Analytics() {
             </span>
             <h1 className="page-title">Player Comparison</h1>
           </div>
-          <p className="page-subtitle">Compare player performance metrics using multiple visualization types</p>
+          <p className="page-subtitle">Elite comparison analytics with cross-league player matchups, visual insights, and decision-grade performance signals.</p>
+        </div>
+
+        <div className="dashboard-panel comparison-insights-panel">
+          <div className="comparison-insights-strip">
+            {comparisonInsights.map((insight) => (
+              <article key={insight.label} className={`comparison-insight-card comparison-winner-${insight.winner}`}>
+                <span className="comparison-insight-label">{insight.label}</span>
+                <div className="comparison-insight-values">
+                  <strong>{insight.left}</strong>
+                  <span>vs</span>
+                  <strong>{insight.right}</strong>
+                </div>
+                <small>
+                  {insight.winner === "draw"
+                    ? "Level"
+                    : insight.winner === "left"
+                      ? `${selectedPlayer1.name} leads`
+                      : `${selectedPlayer2.name} leads`}
+                </small>
+              </article>
+            ))}
+          </div>
         </div>
 
         {/* Player Selection */}
@@ -597,11 +710,18 @@ function Analytics() {
           <div className="player-selectors">
             <div className="selector-group">
               <label>Player 1:</label>
-              <div className="player-card-selection">
-                <img src={selectedPlayer1.photo} alt={selectedPlayer1.name} className="player-photo" />
+              <div className="player-card-selection player-card-selection-side1">
+                <div className="player-card-profile">
+                  <img src={selectedPlayer1.photo || "/assets/img/User.jpg"} alt={selectedPlayer1.name} className="player-photo" />
+                  <div className="player-card-copy">
+                    <strong>{selectedPlayer1.name}</strong>
+                    <span>{selectedPlayer1.position || "Player"}</span>
+                    <small>{selectedPlayer1.club}</small>
+                  </div>
+                </div>
                 <select
                   value={selectedPlayers[0]}
-                  onChange={(e) => setSelectedPlayers([e.target.value, selectedPlayers[1]])}
+                  onChange={(e) => handlePlayerSelection(0, e.target.value)}
                   className="player-select"
                 >
                   {playersBySide[0].map(player => (
@@ -614,11 +734,18 @@ function Analytics() {
             </div>
             <div className="selector-group">
               <label>Player 2:</label>
-              <div className="player-card-selection">
-                <img src={selectedPlayer2.photo} alt={selectedPlayer2.name} className="player-photo" />
+              <div className="player-card-selection player-card-selection-side2">
+                <div className="player-card-profile">
+                  <img src={selectedPlayer2.photo || "/assets/img/User.jpg"} alt={selectedPlayer2.name} className="player-photo" />
+                  <div className="player-card-copy">
+                    <strong>{selectedPlayer2.name}</strong>
+                    <span>{selectedPlayer2.position || "Player"}</span>
+                    <small>{selectedPlayer2.club}</small>
+                  </div>
+                </div>
                 <select
                   value={selectedPlayers[1]}
-                  onChange={(e) => setSelectedPlayers([selectedPlayers[0], e.target.value])}
+                  onChange={(e) => handlePlayerSelection(1, e.target.value)}
                   className="player-select"
                 >
                   {playersBySide[1].map(player => (
@@ -667,46 +794,6 @@ function Analytics() {
         <div className="comparison-summary">
           <div className="summary-card">
             <h3>Comparison Summary</h3>
-            <div className="players-duel-banner">
-              <div
-                className="duel-side left"
-                style={{ backgroundImage: `url(${selectedPlayer1.photo})` }}
-              >
-                <span className="duel-club-badge" aria-hidden="true">
-                  {clubBadges[selectedPlayer1.club] ? (
-                    <img src={clubBadges[selectedPlayer1.club]} alt={`${selectedPlayer1.club} badge`} />
-                  ) : (
-                    <i className="bx bx-shield-quarter"></i>
-                  )}
-                </span>
-                <div className="duel-player-meta">
-                  <h4>{selectedPlayer1.name}</h4>
-                  <p>{selectedPlayer1.position || "Player"}</p>
-                </div>
-              </div>
-
-              <div className="duel-center" aria-hidden="true">
-                <span className="duel-vs">VS</span>
-                <span className="duel-divider">/</span>
-              </div>
-
-              <div
-                className="duel-side right"
-                style={{ backgroundImage: `url(${selectedPlayer2.photo})` }}
-              >
-                <span className="duel-club-badge" aria-hidden="true">
-                  {clubBadges[selectedPlayer2.club] ? (
-                    <img src={clubBadges[selectedPlayer2.club]} alt={`${selectedPlayer2.club} badge`} />
-                  ) : (
-                    <i className="bx bx-shield-quarter"></i>
-                  )}
-                </span>
-                <div className="duel-player-meta">
-                  <h4>{selectedPlayer2.name}</h4>
-                  <p>{selectedPlayer2.position || "Player"}</p>
-                </div>
-              </div>
-            </div>
             <div className="stats-comparison">
               <div className="stat-row">
                 <span className="stat-label">Total Goals:</span>

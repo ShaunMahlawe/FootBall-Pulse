@@ -4,6 +4,20 @@ This project was bootstrapped with [Create React App](https://github.com/faceboo
 
 ## Available Scripts
 
+## API Configuration
+
+The app now supports RapidAPI (API-Football) as the primary data provider.
+
+Create a `.env` file in the project root with:
+
+```bash
+REACT_APP_RAPIDAPI_KEY=your_rapidapi_key
+REACT_APP_RAPIDAPI_HOST=api-football-v1.p.rapidapi.com
+REACT_APP_RAPIDAPI_BASE_URL=https://api-football-v1.p.rapidapi.com/v3
+```
+
+If `REACT_APP_RAPIDAPI_KEY` is not set, the app automatically falls back to TheSportsDB.
+
 In the project directory, you can run:
 
 ### `npm start`
