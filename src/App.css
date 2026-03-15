@@ -3732,6 +3732,22 @@ body.dark .comparison-controls {
     color: #059669;
 }
 
+.stat-value.stat-winner {
+    font-weight: 800;
+    font-size: 16px;
+    box-shadow: 0 0 0 2px currentColor;
+}
+
+.stat-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
+}
+
 @media (max-width: 768px) {
     .sidebar {
         width: 200px;
