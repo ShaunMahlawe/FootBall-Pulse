@@ -1,33 +1,204 @@
-import { useEffect, useState } from "react";
-import { fetchPlayers, fetchPlayerDetails } from "../api/apiFootball";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { clearApiCache, fetchPlayers, fetchPlayerDetails, fetchTeamByName, fetchTeams } from "../api/apiFootball";
+import Topbar from "../components/Topbar";
+import { getPlayerProfileVisual } from "../utils/playerVisuals";
+
+const LEAGUE_OPTIONS = [
+  "English Premier League",
+  "Spanish La Liga",
+  "Italian Serie A",
+  "German Bundesliga",
+  "French Ligue 1",
+  "Dutch Eredivisie",
+  "Portuguese Primeira Liga",
+  "Turkish Super Lig",
+  "Brazilian Serie A",
+  "American Major League Soccer",
+  "Saudi Pro League",
+  "UEFA Champions League",
+  "South African Premier Soccer League",
+];
+
+function getPlayerAge(dateBorn) {
+  if (!dateBorn) return "N/A";
+  return new Date().getFullYear() - new Date(dateBorn).getFullYear();
+}
+
+function normalisePlayers(players) {
+  return (players || [])
+    .filter(
+      (player) =>
+        player &&
+        player.strPlayer &&
+        player.strPosition &&
+        player.strStatus !== "Coaching" &&
+        !/coach/i.test(player.strPosition)
+    )
+    .sort((left, right) => (left.strPlayer || "").localeCompare(right.strPlayer || ""));
+}
+
+function buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam) {
+  const details = playerDetails || selectedPlayer || {};
+  const providedBio = (details.strDescriptionEN || "").trim();
+  if (providedBio) return providedBio;
+
+  const name = details.strPlayer || selectedPlayer?.strPlayer || selectedPlayer?.name || "Player";
+  const nationality = details.strNationality || selectedPlayer?.strNationality || selectedPlayer?.nationality;
+  const position = details.strPosition || selectedPlayer?.strPosition || selectedPlayer?.position;
+  const team = details.strTeam || selectedPlayer?.strTeam || selectedTeam;
+  const status = details.strStatus || selectedPlayer?.strStatus;
+  const preferredSide = details.strSide;
+  const birthLocation = details.strBirthLocation;
+  const height = details.strHeight;
+  const weight = details.strWeight;
+
+  const overviewParts = [];
+  if (nationality) overviewParts.push(`${nationality} professional footballer`);
+  if (position) overviewParts.push(`playing as ${position}`);
+  if (team) overviewParts.push(`for ${team}`);
+
+  const profileFacts = [];
+  if (height) profileFacts.push(`Height: ${height}`);
+  if (weight) profileFacts.push(`Weight: ${weight}`);
+  if (preferredSide) profileFacts.push(`Preferred side: ${preferredSide}`);
+  if (birthLocation) profileFacts.push(`Birth location: ${birthLocation}`);
+  if (status) profileFacts.push(`Status: ${status}`);
+
+  const overview = overviewParts.length > 0
+    ? `${name} is a ${overviewParts.join(" ")}.`
+    : `${name} is an active professional football player.`;
+
+  if (profileFacts.length === 0) {
+    return `${overview} A detailed written biography is not currently available from the data provider. Key profile attributes are shown above.`;
+  }
+
+  return `${overview} Profile summary: ${profileFacts.join(" | ")}.`;
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
 function Players() {
+  const location = useLocation();
+  const teamsCacheByLeagueRef = useRef({});
+  const playersCacheByTeamRef = useRef({});
+
   const [players, setPlayers] = useState([]);
-  const [selectedTeam, setSelectedTeam] = useState("Barcelona");
+  const [teams, setTeams] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState(LEAGUE_OPTIONS[0]);
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerDetails, setPlayerDetails] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-
-  const popularTeams = [
-    "Barcelona",
-    "Real Madrid",
-    "Manchester United",
-    "Manchester City",
-    "Liverpool",
-    "Chelsea",
-    "Arsenal",
-    "Bayern Munich",
-    "Paris Saint-Germain",
-    "Juventus"
-  ];
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [globalSearchResults, setGlobalSearchResults] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [clubBadge, setClubBadge] = useState("");
+  const [pendingTopbarSelection, setPendingTopbarSelection] = useState(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      teamsCacheByLeagueRef.current = {};
+      playersCacheByTeamRef.current = {};
+      setRefreshNonce((value) => value + 1);
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    const prefillPlayerSearch = location.state?.prefillPlayerSearch || "";
+    const preselectLeague = location.state?.preselectLeague || "";
+    const preselectTeam = location.state?.preselectTeam || "";
+    const preselectPlayerId = location.state?.preselectPlayerId || "";
+    const preselectPlayerName = location.state?.preselectPlayerName || "";
+
+    if (preselectLeague && LEAGUE_OPTIONS.includes(preselectLeague)) {
+      setSelectedLeague(preselectLeague);
+    }
+
+    if (prefillPlayerSearch) {
+      setSearchTerm(prefillPlayerSearch);
+    }
+
+    if (preselectTeam) {
+      setSelectedTeam(preselectTeam);
+    }
+
+    if (preselectPlayerId || preselectPlayerName) {
+      setPendingTopbarSelection({
+        id: String(preselectPlayerId || ""),
+        name: String(preselectPlayerName || ""),
+      });
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    async function loadTeams() {
+      try {
+        setLoading(true);
+        const data = await fetchTeams(selectedLeague);
+        const sortedTeams = (data || []).sort((left, right) =>
+          (left.strTeam || "").localeCompare(right.strTeam || "")
+        );
+
+        teamsCacheByLeagueRef.current[selectedLeague] = sortedTeams;
+
+        setTeams(sortedTeams);
+        setSelectedTeam((currentTeam) => {
+          if (sortedTeams.some((team) => team.strTeam === currentTeam)) {
+            return currentTeam;
+          }
+          return sortedTeams[0]?.strTeam || "";
+        });
+      } catch (error) {
+        console.error("Error loading teams:", error);
+        setTeams([]);
+        setSelectedTeam("");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadTeams();
+  }, [selectedLeague, refreshNonce]);
+
+  useEffect(() => {
+    if (!selectedTeam) {
+      setPlayers([]);
+      return;
+    }
+
     async function loadPlayers() {
       try {
         setLoading(true);
         const data = await fetchPlayers(selectedTeam);
-        setPlayers(data || []);
+        const normalizedPlayers = normalisePlayers(data);
+        playersCacheByTeamRef.current[selectedTeam] = normalizedPlayers;
+        setPlayers(normalizedPlayers);
+        setLastUpdated(
+          new Date().toLocaleString("en-ZA", {
+            timeZone: "Africa/Johannesburg",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        );
       } catch (error) {
         console.error("Error loading players:", error);
         setPlayers([]);
@@ -35,38 +206,228 @@ function Players() {
         setLoading(false);
       }
     }
-    loadPlayers();
-  }, [selectedTeam]);
 
-  const handlePlayerClick = async (player) => {
+    loadPlayers();
+  }, [selectedTeam, refreshNonce]);
+
+  useEffect(() => {
+    const query = normalizeSearchText(searchTerm);
+
+    if (query.length < 2) {
+      setGlobalSearchLoading(false);
+      setGlobalSearchResults([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    const timeoutId = setTimeout(async () => {
+      setGlobalSearchLoading(true);
+
+      try {
+        const aggregatedMatches = [];
+
+        for (const leagueName of LEAGUE_OPTIONS) {
+          let leagueTeams = teamsCacheByLeagueRef.current[leagueName];
+          if (!leagueTeams) {
+            const fetchedTeams = await fetchTeams(leagueName);
+            leagueTeams = (fetchedTeams || []).sort((left, right) =>
+              (left.strTeam || "").localeCompare(right.strTeam || "")
+            );
+            teamsCacheByLeagueRef.current[leagueName] = leagueTeams;
+          }
+
+          for (const team of leagueTeams) {
+            const teamName = team?.strTeam || "";
+            if (!teamName) continue;
+
+            let roster = playersCacheByTeamRef.current[teamName];
+            if (!roster) {
+              const fetchedPlayers = await fetchPlayers(teamName);
+              roster = normalisePlayers(fetchedPlayers);
+              playersCacheByTeamRef.current[teamName] = roster;
+            }
+
+            const matches = roster.filter((player) =>
+              normalizeSearchText(player?.strPlayer || player?.name || "").includes(query)
+            );
+
+            matches.forEach((player) => {
+              aggregatedMatches.push({
+                ...player,
+                __searchLeague: leagueName,
+                __searchTeam: teamName,
+              });
+            });
+
+            if (aggregatedMatches.length >= 48) break;
+          }
+
+          if (aggregatedMatches.length >= 48) break;
+        }
+
+        if (!isMounted) return;
+        setGlobalSearchResults(aggregatedMatches.slice(0, 48));
+      } catch (error) {
+        console.error("Error searching across leagues and clubs:", error);
+        if (isMounted) {
+          setGlobalSearchResults([]);
+        }
+      } finally {
+        if (isMounted) {
+          setGlobalSearchLoading(false);
+        }
+      }
+    }, 320);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [searchTerm, refreshNonce]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadClubBadge() {
+      if (!selectedTeam) {
+        if (isMounted) {
+          setClubBadge("");
+        }
+        return;
+      }
+
+      try {
+        const team = await fetchTeamByName(selectedTeam);
+        if (!isMounted) return;
+
+        setClubBadge(team?.strTeamBadge || team?.strTeamLogo || "");
+      } catch (error) {
+        console.error("Error loading club badge:", error);
+        if (isMounted) {
+          setClubBadge("");
+        }
+      }
+    }
+
+    loadClubBadge();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTeam, refreshNonce]);
+
+  const handlePlayerClick = useCallback(async (player) => {
+    if (player?.__searchLeague && player.__searchLeague !== selectedLeague) {
+      setSelectedLeague(player.__searchLeague);
+    }
+
+    if (player?.__searchTeam && player.__searchTeam !== selectedTeam) {
+      setSelectedTeam(player.__searchTeam);
+    }
+
     setSelectedPlayer(player);
+    setPlayerDetails(null);
     try {
       const details = await fetchPlayerDetails(player.idPlayer);
       setPlayerDetails(details);
     } catch (error) {
       console.error("Error loading player details:", error);
     }
-  };
+  }, [selectedLeague, selectedTeam]);
+
+  useEffect(() => {
+    if (!pendingTopbarSelection || players.length === 0) {
+      return;
+    }
+
+    const selectedById = pendingTopbarSelection.id
+      ? players.find((player) => String(player.idPlayer || player.id || "") === pendingTopbarSelection.id)
+      : null;
+
+    const normalizedName = pendingTopbarSelection.name.trim().toLowerCase();
+    const selectedByName = normalizedName
+      ? players.find((player) => String(player.strPlayer || player.name || "").trim().toLowerCase() === normalizedName)
+      : null;
+
+    const nextSelection = selectedById || selectedByName || null;
+    if (!nextSelection) {
+      return;
+    }
+
+    handlePlayerClick(nextSelection);
+    setPendingTopbarSelection(null);
+  }, [pendingTopbarSelection, players, handlePlayerClick]);
+
+  useEffect(() => {
+    if (!pendingTopbarSelection || globalSearchLoading || globalSearchResults.length === 0) {
+      return;
+    }
+
+    const selectedById = pendingTopbarSelection.id
+      ? globalSearchResults.find((player) => String(player.idPlayer || player.id || "") === pendingTopbarSelection.id)
+      : null;
+
+    const normalizedName = normalizeSearchText(pendingTopbarSelection.name);
+    const selectedByName = normalizedName
+      ? globalSearchResults.find((player) => normalizeSearchText(player.strPlayer || player.name || "") === normalizedName)
+      : null;
+
+    const nextSelection = selectedById || selectedByName || null;
+    if (!nextSelection) return;
+
+    handlePlayerClick(nextSelection);
+    setPendingTopbarSelection(null);
+  }, [pendingTopbarSelection, globalSearchLoading, globalSearchResults, handlePlayerClick]);
 
   const closePlayerDetails = () => {
     setSelectedPlayer(null);
     setPlayerDetails(null);
   };
 
-  const displayedPlayers = players.filter(player =>
-    (player.strPlayer || player.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const query = normalizeSearchText(searchTerm);
+  const isCrossScopeSearch = query.length >= 2;
+
+  const displayedPlayers = isCrossScopeSearch
+    ? globalSearchResults
+    : players.filter((player) =>
+        normalizeSearchText(player.strPlayer || player.name || "").includes(query)
+      );
+
+  const biographyText = buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam);
 
   return (
     <div className="home">
-      <div className="page-container">
+      <Topbar />
+      <div className="dashboard-shell page-flow-shell">
+      <div className="page-container page-flow-container">
         <div className="page-header">
-          <h1 className="page-title">Players</h1>
-          <p className="page-subtitle">Explore player statistics and performance data</p>
+          <div className="page-title-row">
+            <span className="page-title-icon">
+              <i className="bx bx-user"></i>
+            </span>
+            <h1 className="page-title">Players</h1>
+          </div>
+          <p className="page-subtitle">Live current squad and player profile data sourced from major leagues.</p>
         </div>
 
-        {/* Team Selector and Search */}
+        <div className="dashboard-panel players-controls-panel">
         <div className="players-controls">
+          <div className="control-group">
+            <label>Select League:</label>
+            <select
+              value={selectedLeague}
+              onChange={(e) => setSelectedLeague(e.target.value)}
+              className="team-select"
+            >
+              {LEAGUE_OPTIONS.map((league) => (
+                <option key={league} value={league}>
+                  {league}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="control-group">
             <label>Select Team:</label>
             <select
@@ -74,9 +435,9 @@ function Players() {
               onChange={(e) => setSelectedTeam(e.target.value)}
               className="team-select"
             >
-              {popularTeams.map(team => (
-                <option key={team} value={team}>
-                  {team}
+              {teams.map((team) => (
+                <option key={team.idTeam} value={team.strTeam}>
+                  {team.strTeam}
                 </option>
               ))}
             </select>
@@ -92,52 +453,87 @@ function Players() {
               className="player-search"
             />
           </div>
+
+          <div className="control-group">
+            <label>Last Refresh</label>
+            <div className="team-select players-meta-pill">{lastUpdated || "Loading..."}</div>
+          </div>
+        </div>
         </div>
 
         {loading ? (
-          <div className="loading-container">
+          <div className="dashboard-panel loading-container">
             <div className="loading-spinner"></div>
-            <p>Loading players from {selectedTeam}...</p>
+            <p>Loading players from {selectedTeam || selectedLeague}...</p>
           </div>
         ) : (
+          <div className="dashboard-panel players-list-panel">
           <div className="players-list">
-            {displayedPlayers.length > 0 ? (
-              displayedPlayers.slice(0, 24).map(player => (
-                <div
-                  key={player.idPlayer || player.id}
-                  className="player-item"
-                  onClick={() => handlePlayerClick(player)}
-                >
-                  <div className="player-photo">
-                    <img
-                      src={player.strThumb || player.strCutout || `https://via.placeholder.com/120x120?text=${player.strPlayer?.charAt(0) || 'P'}`}
-                      alt={player.strPlayer || player.name}
-                      onError={(e) => {
-                        e.target.src = `https://via.placeholder.com/120x120?text=${(player.strPlayer || player.name)?.charAt(0) || 'P'}`;
-                      }}
-                    />
-                  </div>
-                  <div className="player-info">
-                    <h3>{player.strPlayer || player.name}</h3>
-                    <p className="player-position">{player.strPosition || player.position || 'Unknown'}</p>
-                    <p className="player-nationality">{player.strNationality || player.nationality || 'Unknown'}</p>
-                    <div className="player-stats">
-                      <span className="stat-item">
-                        <strong>Age:</strong> {player.dateBorn ? new Date().getFullYear() - new Date(player.dateBorn).getFullYear() : 'N/A'}
-                      </span>
-                      <span className="stat-item">
-                        <strong>Height:</strong> {player.strHeight || 'N/A'}
-                      </span>
+            {globalSearchLoading ? (
+              <div className="no-players">
+                <p>Searching across all leagues and clubs...</p>
+                <p>Finding player matches beyond the currently selected team.</p>
+              </div>
+            ) : displayedPlayers.length > 0 ? (
+              displayedPlayers.slice(0, 24).map((player) => {
+                const playerImage = getPlayerProfileVisual(player, {
+                  name: player.strPlayer,
+                  team: player.strTeam || player.__searchTeam || selectedTeam,
+                });
+
+                const resolvedTeamName = player.strTeam || player.__searchTeam || selectedTeam;
+                const resolvedLeagueName = player.__searchLeague || selectedLeague;
+                const cardClubBadge =
+                  resolvedTeamName && resolvedTeamName === selectedTeam && clubBadge
+                    ? clubBadge
+                    : "/assets/img/logo.png";
+
+                return (
+                  <div
+                    key={player.idPlayer || player.id}
+                    className="player-item player-profile-card"
+                    onClick={() => handlePlayerClick(player)}
+                  >
+                    <div className="player-profile-card-media">
+                      <img
+                        src={playerImage}
+                        alt={player.strPlayer || player.name}
+                        className="player-profile-card-photo"
+                      />
+                      <div className="player-overlay-content player-profile-card-content">
+                        <h3 className="player-overlay-name">{player.strPlayer || player.name}</h3>
+                        <p className="player-overlay-position">{player.strPosition || player.position || 'Unknown'}</p>
+                        <div className="player-overlay-meta-row">
+                          <img
+                            src={cardClubBadge}
+                            alt={`${resolvedTeamName || "Club"} logo`}
+                            className="player-overlay-club-badge"
+                          />
+                          <p className="player-overlay-meta">{resolvedTeamName || 'Unknown Club'}</p>
+                        </div>
+                        {isCrossScopeSearch ? <p className="player-overlay-meta">{resolvedLeagueName}</p> : null}
+                        <button
+                          type="button"
+                          className="player-overlay-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePlayerClick(player);
+                          }}
+                        >
+                          View Player
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="no-players">
-                <p>{searchTerm ? `No players found for "${searchTerm}"` : `No players found for ${selectedTeam}`}</p>
-                <p>{searchTerm ? 'Try a different search term.' : 'Try selecting a different team.'}</p>
+                <p>{searchTerm ? `No players found for "${searchTerm}" across leagues and clubs.` : `No players found for ${selectedTeam}`}</p>
+                <p>{searchTerm ? 'Try a shorter or partial player name.' : 'Try selecting a different team.'}</p>
               </div>
             )}
+          </div>
           </div>
         )}
 
@@ -148,13 +544,24 @@ function Players() {
               <div className="modal-header">
                 <div className="modal-player-info">
                   <img
-                    src={selectedPlayer.strThumb || selectedPlayer.strCutout || `https://via.placeholder.com/150x150?text=${selectedPlayer.strPlayer?.charAt(0) || 'P'}`}
+                    src={getPlayerProfileVisual(playerDetails || selectedPlayer, {
+                      name: selectedPlayer.strPlayer,
+                      team: selectedPlayer.strTeam || selectedTeam,
+                    })}
                     alt={selectedPlayer.strPlayer || selectedPlayer.name}
                     className="modal-player-photo"
                   />
                   <div>
                     <h2>{selectedPlayer.strPlayer || selectedPlayer.name}</h2>
                     <p className="modal-player-position">{selectedPlayer.strPosition || selectedPlayer.position}</p>
+                    <div className="modal-player-club-row">
+                      <img
+                        src={clubBadge || "/assets/img/logo.png"}
+                        alt={`${selectedPlayer.strTeam || selectedTeam || "Club"} logo`}
+                        className="modal-player-club-badge"
+                      />
+                      <span>{selectedPlayer.strTeam || selectedTeam || "Unknown Club"}</span>
+                    </div>
                     <p className="modal-player-nationality">{selectedPlayer.strNationality || selectedPlayer.nationality}</p>
                   </div>
                 </div>
@@ -174,7 +581,7 @@ function Players() {
                           <strong>Birth Date:</strong> {playerDetails.dateBorn || 'N/A'}
                         </div>
                         <div className="detail-item">
-                          <strong>Age:</strong> {playerDetails.dateBorn ? new Date().getFullYear() - new Date(playerDetails.dateBorn).getFullYear() : 'N/A'}
+                          <strong>Age:</strong> {getPlayerAge(playerDetails.dateBorn)}
                         </div>
                         <div className="detail-item">
                           <strong>Nationality:</strong> {playerDetails.strNationality || 'N/A'}
@@ -184,6 +591,9 @@ function Players() {
                         </div>
                         <div className="detail-item">
                           <strong>Weight:</strong> {playerDetails.strWeight || 'N/A'}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Birth Place:</strong> {playerDetails.strBirthLocation || 'N/A'}
                         </div>
                       </div>
                     </div>
@@ -198,19 +608,23 @@ function Players() {
                           <strong>Current Team:</strong> {playerDetails.strTeam || 'N/A'}
                         </div>
                         <div className="detail-item">
+                          <strong>Preferred Side:</strong> {playerDetails.strSide || 'N/A'}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Status:</strong> {playerDetails.strStatus || 'N/A'}
+                        </div>
+                        <div className="detail-item">
                           <strong>Sport:</strong> {playerDetails.strSport || 'Football'}
                         </div>
                       </div>
                     </div>
 
-                    {playerDetails.strDescriptionEN && (
-                      <div className="detail-section">
-                        <h3>Biography</h3>
-                        <p className="player-description">
-                          {playerDetails.strDescriptionEN}
-                        </p>
-                      </div>
-                    )}
+                    <div className="detail-section">
+                      <h3>Biography</h3>
+                      <p className="player-description">
+                        {biographyText}
+                      </p>
+                    </div>
 
                     {playerDetails.strThumb && (
                       <div className="detail-section">
@@ -228,6 +642,7 @@ function Players() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

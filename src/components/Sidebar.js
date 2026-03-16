@@ -1,18 +1,94 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+
+const NAV_LINKS = [
+  { to: "/", icon: "bx-home", label: "Dashboard" },
+  { to: "/players", icon: "bx-user", label: "Players" },
+  { to: "/teams", icon: "bx-group", label: "Teams" },
+  { to: "/comparison", icon: "bx-git-compare", label: "Comparison" },
+  { to: "/timeline", icon: "bx-time", label: "Timeline" },
+];
 
 function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(() => window.innerWidth <= 1024);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.body.classList.contains("dark") || false;
   });
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef(null);
   const location = useLocation();
+
+  useEffect(() => {
+    const handleViewportResize = () => {
+      const mobile = window.innerWidth <= 1024;
+      setIsMobileView(mobile);
+
+      if (!mobile) {
+        setIsMobileOpen(false);
+      }
+    };
+
+    handleViewportResize();
+    window.addEventListener("resize", handleViewportResize);
+
+    return () => {
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("dark", isDarkMode);
   }, [isDarkMode]);
 
+  useEffect(() => {
+    const handleOpenSearch = () => {
+      if (isMobileView) {
+        setIsMobileOpen(true);
+      } else {
+        setIsCollapsed(false);
+      }
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+    };
+
+    const handleToggleSidebar = () => {
+      if (isMobileView) {
+        setIsMobileOpen((prev) => !prev);
+      } else {
+        setIsCollapsed((prev) => !prev);
+      }
+    };
+
+    const handleCloseSidebar = () => {
+      setIsMobileOpen(false);
+    };
+
+    window.addEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+    window.addEventListener("footballpulse:toggleSidebar", handleToggleSidebar);
+    window.addEventListener("footballpulse:closeSidebar", handleCloseSidebar);
+
+    return () => {
+      window.removeEventListener("footballpulse:openSidebarSearch", handleOpenSearch);
+      window.removeEventListener("footballpulse:toggleSidebar", handleToggleSidebar);
+      window.removeEventListener("footballpulse:closeSidebar", handleCloseSidebar);
+    };
+  }, [isMobileView]);
+
+  useEffect(() => {
+    if (isMobileView) {
+      setIsMobileOpen(false);
+    }
+  }, [isMobileView, location.pathname]);
+
   const toggleSidebar = () => {
+    if (isMobileView) {
+      setIsMobileOpen((prev) => !prev);
+      return;
+    }
+
     setIsCollapsed((prev) => !prev);
   };
 
@@ -20,8 +96,25 @@ function Sidebar() {
     setIsDarkMode((prev) => !prev);
   };
 
+  const openSearch = () => {
+    if (isMobileView) {
+      setIsMobileOpen(true);
+    } else {
+      setIsCollapsed(false);
+    }
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  };
+
+  const filteredLinks = NAV_LINKS.filter((link) =>
+    link.label.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <nav className={`sidebar ${isCollapsed ? "close" : ""}`}>
+    <>
+      {isMobileView && isMobileOpen ? <div className="sidebar-backdrop" onClick={() => setIsMobileOpen(false)}></div> : null}
+      <nav className={`sidebar ${isCollapsed ? "close" : ""} ${isMobileOpen ? "mobile-open" : ""}`}>
       <header>
         <div className="image-text">
           <span className="image">
@@ -42,46 +135,41 @@ function Sidebar() {
       <div className="menu-bar">
         <div className="menu">
           <ul className="menu-links">
-            <li className="search-box">
-              <i className="bx bx-search icon"></i>
-              <input type="search" placeholder="Search..." />
+            <li
+              className="search-box"
+              onClick={openSearch}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openSearch();
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
+              <i className="bx bx-search icon" onClick={openSearch}></i>
+              <input
+                ref={searchInputRef}
+                type="search"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </li>
-            <li className="nav-link">
-              <Link to="/" className={location.pathname === "/" ? "active" : ""}>
-                <i className="bx bx-dashboard icon"></i>
-                <span className="text nav-text">Dashboard</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/players" className={location.pathname === "/players" ? "active" : ""}>
-                <i className="bx bx-user icon"></i>
-                <span className="text nav-text">Players</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/teams" className={location.pathname === "/teams" ? "active" : ""}>
-                <i className="bx bx-group icon"></i>
-                <span className="text nav-text">Teams</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/comparison" className={location.pathname === "/comparison" ? "active" : ""}>
-                <i className="bx bx-bar-chart-big icon"></i>
-                <span className="text nav-text">Comparison</span>
-              </Link>
-            </li>
-            <li className="nav-link">
-              <Link to="/timeline" className={location.pathname === "/timeline" ? "active" : ""}>
-                <i className="bx bx-time icon"></i>
-                <span className="text nav-text">Timeline</span>
-              </Link>
-            </li>
+            {filteredLinks.map((link) => (
+              <li key={link.to}>
+                <Link to={link.to} className={location.pathname === link.to ? "active" : ""}>
+                  <i className={`bx ${link.icon} icon`}></i>
+                  <span className="text nav-text">{link.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div className="bottom-content">
-          <li className="nav-link">
-            <button onClick={() => alert("Logout functionality not implemented yet")} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', height: '100%' }}>
+          <li>
+            <button onClick={() => alert("Logout functionality not implemented yet")}>
               <i className="bx bx-log-out icon"></i>
               <span className="text nav-text">Logout</span>
             </button>
@@ -99,7 +187,8 @@ function Sidebar() {
           </li>
         </div>
       </div>
-    </nav>
+      </nav>
+    </>
   );
 }
 
