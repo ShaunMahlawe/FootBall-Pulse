@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { fetchPlayers, fetchPlayerDetails, fetchTeamByName, fetchTeams } from "../api/apiFootball";
+import { clearApiCache, fetchPlayers, fetchPlayerDetails, fetchTeamByName, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
 import { getPlayerProfileVisual } from "../utils/playerVisuals";
 
@@ -10,6 +10,12 @@ const LEAGUE_OPTIONS = [
   "Italian Serie A",
   "German Bundesliga",
   "French Ligue 1",
+  "Dutch Eredivisie",
+  "Portuguese Primeira Liga",
+  "Turkish Super Lig",
+  "Brazilian Serie A",
+  "American Major League Soccer",
+  "Saudi Pro League",
   "UEFA Champions League",
   "South African Premier Soccer League",
 ];
@@ -37,7 +43,7 @@ function buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam) {
   const providedBio = (details.strDescriptionEN || "").trim();
   if (providedBio) return providedBio;
 
-  const name = details.strPlayer || selectedPlayer?.strPlayer || selectedPlayer?.name || "This player";
+  const name = details.strPlayer || selectedPlayer?.strPlayer || selectedPlayer?.name || "Player";
   const nationality = details.strNationality || selectedPlayer?.strNationality || selectedPlayer?.nationality;
   const position = details.strPosition || selectedPlayer?.strPosition || selectedPlayer?.position;
   const team = details.strTeam || selectedPlayer?.strTeam || selectedTeam;
@@ -47,31 +53,42 @@ function buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam) {
   const height = details.strHeight;
   const weight = details.strWeight;
 
-  const summaryBits = [];
-  if (nationality) summaryBits.push(`${nationality} footballer`);
-  if (position) summaryBits.push(`who plays as a ${position}`);
-  if (team) summaryBits.push(`for ${team}`);
+  const overviewParts = [];
+  if (nationality) overviewParts.push(`${nationality} professional footballer`);
+  if (position) overviewParts.push(`playing as ${position}`);
+  if (team) overviewParts.push(`for ${team}`);
 
-  const traits = [];
-  if (height) traits.push(`height: ${height}`);
-  if (weight) traits.push(`weight: ${weight}`);
-  if (preferredSide) traits.push(`preferred side: ${preferredSide}`);
-  if (birthLocation) traits.push(`born in ${birthLocation}`);
-  if (status) traits.push(`status: ${status}`);
+  const profileFacts = [];
+  if (height) profileFacts.push(`Height: ${height}`);
+  if (weight) profileFacts.push(`Weight: ${weight}`);
+  if (preferredSide) profileFacts.push(`Preferred side: ${preferredSide}`);
+  if (birthLocation) profileFacts.push(`Birth location: ${birthLocation}`);
+  if (status) profileFacts.push(`Status: ${status}`);
 
-  const intro = summaryBits.length > 0
-    ? `${name} is a ${summaryBits.join(" ")}.`
-    : `${name} is an active football player.`;
+  const overview = overviewParts.length > 0
+    ? `${name} is a ${overviewParts.join(" ")}.`
+    : `${name} is an active professional football player.`;
 
-  if (traits.length === 0) {
-    return `${intro} Detailed biography text is currently unavailable from the provider, but key player characteristics are shown above.`;
+  if (profileFacts.length === 0) {
+    return `${overview} A detailed written biography is not currently available from the data provider. Key profile attributes are shown above.`;
   }
 
-  return `${intro} Player characteristics include ${traits.join(", ")}.`;
+  return `${overview} Profile summary: ${profileFacts.join(" | ")}.`;
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function Players() {
   const location = useLocation();
+  const teamsCacheByLeagueRef = useRef({});
+  const playersCacheByTeamRef = useRef({});
+
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState(LEAGUE_OPTIONS[0]);
@@ -80,15 +97,38 @@ function Players() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerDetails, setPlayerDetails] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [globalSearchResults, setGlobalSearchResults] = useState([]);
   const [lastUpdated, setLastUpdated] = useState("");
   const [clubBadge, setClubBadge] = useState("");
   const [pendingTopbarSelection, setPendingTopbarSelection] = useState(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      teamsCacheByLeagueRef.current = {};
+      playersCacheByTeamRef.current = {};
+      setRefreshNonce((value) => value + 1);
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
+  }, []);
 
   useEffect(() => {
     const prefillPlayerSearch = location.state?.prefillPlayerSearch || "";
+    const preselectLeague = location.state?.preselectLeague || "";
     const preselectTeam = location.state?.preselectTeam || "";
     const preselectPlayerId = location.state?.preselectPlayerId || "";
     const preselectPlayerName = location.state?.preselectPlayerName || "";
+
+    if (preselectLeague && LEAGUE_OPTIONS.includes(preselectLeague)) {
+      setSelectedLeague(preselectLeague);
+    }
 
     if (prefillPlayerSearch) {
       setSearchTerm(prefillPlayerSearch);
@@ -115,6 +155,8 @@ function Players() {
           (left.strTeam || "").localeCompare(right.strTeam || "")
         );
 
+        teamsCacheByLeagueRef.current[selectedLeague] = sortedTeams;
+
         setTeams(sortedTeams);
         setSelectedTeam((currentTeam) => {
           if (sortedTeams.some((team) => team.strTeam === currentTeam)) {
@@ -132,7 +174,7 @@ function Players() {
     }
 
     loadTeams();
-  }, [selectedLeague]);
+  }, [selectedLeague, refreshNonce]);
 
   useEffect(() => {
     if (!selectedTeam) {
@@ -144,7 +186,9 @@ function Players() {
       try {
         setLoading(true);
         const data = await fetchPlayers(selectedTeam);
-        setPlayers(normalisePlayers(data));
+        const normalizedPlayers = normalisePlayers(data);
+        playersCacheByTeamRef.current[selectedTeam] = normalizedPlayers;
+        setPlayers(normalizedPlayers);
         setLastUpdated(
           new Date().toLocaleString("en-ZA", {
             timeZone: "Africa/Johannesburg",
@@ -164,7 +208,83 @@ function Players() {
     }
 
     loadPlayers();
-  }, [selectedTeam]);
+  }, [selectedTeam, refreshNonce]);
+
+  useEffect(() => {
+    const query = normalizeSearchText(searchTerm);
+
+    if (query.length < 2) {
+      setGlobalSearchLoading(false);
+      setGlobalSearchResults([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    const timeoutId = setTimeout(async () => {
+      setGlobalSearchLoading(true);
+
+      try {
+        const aggregatedMatches = [];
+
+        for (const leagueName of LEAGUE_OPTIONS) {
+          let leagueTeams = teamsCacheByLeagueRef.current[leagueName];
+          if (!leagueTeams) {
+            const fetchedTeams = await fetchTeams(leagueName);
+            leagueTeams = (fetchedTeams || []).sort((left, right) =>
+              (left.strTeam || "").localeCompare(right.strTeam || "")
+            );
+            teamsCacheByLeagueRef.current[leagueName] = leagueTeams;
+          }
+
+          for (const team of leagueTeams) {
+            const teamName = team?.strTeam || "";
+            if (!teamName) continue;
+
+            let roster = playersCacheByTeamRef.current[teamName];
+            if (!roster) {
+              const fetchedPlayers = await fetchPlayers(teamName);
+              roster = normalisePlayers(fetchedPlayers);
+              playersCacheByTeamRef.current[teamName] = roster;
+            }
+
+            const matches = roster.filter((player) =>
+              normalizeSearchText(player?.strPlayer || player?.name || "").includes(query)
+            );
+
+            matches.forEach((player) => {
+              aggregatedMatches.push({
+                ...player,
+                __searchLeague: leagueName,
+                __searchTeam: teamName,
+              });
+            });
+
+            if (aggregatedMatches.length >= 48) break;
+          }
+
+          if (aggregatedMatches.length >= 48) break;
+        }
+
+        if (!isMounted) return;
+        setGlobalSearchResults(aggregatedMatches.slice(0, 48));
+      } catch (error) {
+        console.error("Error searching across leagues and clubs:", error);
+        if (isMounted) {
+          setGlobalSearchResults([]);
+        }
+      } finally {
+        if (isMounted) {
+          setGlobalSearchLoading(false);
+        }
+      }
+    }, 320);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [searchTerm, refreshNonce]);
 
   useEffect(() => {
     let isMounted = true;
@@ -195,7 +315,26 @@ function Players() {
     return () => {
       isMounted = false;
     };
-  }, [selectedTeam]);
+  }, [selectedTeam, refreshNonce]);
+
+  const handlePlayerClick = useCallback(async (player) => {
+    if (player?.__searchLeague && player.__searchLeague !== selectedLeague) {
+      setSelectedLeague(player.__searchLeague);
+    }
+
+    if (player?.__searchTeam && player.__searchTeam !== selectedTeam) {
+      setSelectedTeam(player.__searchTeam);
+    }
+
+    setSelectedPlayer(player);
+    setPlayerDetails(null);
+    try {
+      const details = await fetchPlayerDetails(player.idPlayer);
+      setPlayerDetails(details);
+    } catch (error) {
+      console.error("Error loading player details:", error);
+    }
+  }, [selectedLeague, selectedTeam]);
 
   useEffect(() => {
     if (!pendingTopbarSelection || players.length === 0) {
@@ -218,27 +357,42 @@ function Players() {
 
     handlePlayerClick(nextSelection);
     setPendingTopbarSelection(null);
-  }, [pendingTopbarSelection, players]);
+  }, [pendingTopbarSelection, players, handlePlayerClick]);
 
-  const handlePlayerClick = async (player) => {
-    setSelectedPlayer(player);
-    setPlayerDetails(null);
-    try {
-      const details = await fetchPlayerDetails(player.idPlayer);
-      setPlayerDetails(details);
-    } catch (error) {
-      console.error("Error loading player details:", error);
+  useEffect(() => {
+    if (!pendingTopbarSelection || globalSearchLoading || globalSearchResults.length === 0) {
+      return;
     }
-  };
+
+    const selectedById = pendingTopbarSelection.id
+      ? globalSearchResults.find((player) => String(player.idPlayer || player.id || "") === pendingTopbarSelection.id)
+      : null;
+
+    const normalizedName = normalizeSearchText(pendingTopbarSelection.name);
+    const selectedByName = normalizedName
+      ? globalSearchResults.find((player) => normalizeSearchText(player.strPlayer || player.name || "") === normalizedName)
+      : null;
+
+    const nextSelection = selectedById || selectedByName || null;
+    if (!nextSelection) return;
+
+    handlePlayerClick(nextSelection);
+    setPendingTopbarSelection(null);
+  }, [pendingTopbarSelection, globalSearchLoading, globalSearchResults, handlePlayerClick]);
 
   const closePlayerDetails = () => {
     setSelectedPlayer(null);
     setPlayerDetails(null);
   };
 
-  const displayedPlayers = players.filter(player =>
-    (player.strPlayer || player.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const query = normalizeSearchText(searchTerm);
+  const isCrossScopeSearch = query.length >= 2;
+
+  const displayedPlayers = isCrossScopeSearch
+    ? globalSearchResults
+    : players.filter((player) =>
+        normalizeSearchText(player.strPlayer || player.name || "").includes(query)
+      );
 
   const biographyText = buildPlayerBiography(playerDetails, selectedPlayer, selectedTeam);
 
@@ -315,12 +469,24 @@ function Players() {
         ) : (
           <div className="dashboard-panel players-list-panel">
           <div className="players-list">
-            {displayedPlayers.length > 0 ? (
+            {globalSearchLoading ? (
+              <div className="no-players">
+                <p>Searching across all leagues and clubs...</p>
+                <p>Finding player matches beyond the currently selected team.</p>
+              </div>
+            ) : displayedPlayers.length > 0 ? (
               displayedPlayers.slice(0, 24).map((player) => {
                 const playerImage = getPlayerProfileVisual(player, {
                   name: player.strPlayer,
-                  team: player.strTeam || selectedTeam,
+                  team: player.strTeam || player.__searchTeam || selectedTeam,
                 });
+
+                const resolvedTeamName = player.strTeam || player.__searchTeam || selectedTeam;
+                const resolvedLeagueName = player.__searchLeague || selectedLeague;
+                const cardClubBadge =
+                  resolvedTeamName && resolvedTeamName === selectedTeam && clubBadge
+                    ? clubBadge
+                    : "/assets/img/logo.png";
 
                 return (
                   <div
@@ -339,12 +505,13 @@ function Players() {
                         <p className="player-overlay-position">{player.strPosition || player.position || 'Unknown'}</p>
                         <div className="player-overlay-meta-row">
                           <img
-                            src={clubBadge || "/assets/img/logo.png"}
-                            alt={`${player.strTeam || selectedTeam || "Club"} logo`}
+                            src={cardClubBadge}
+                            alt={`${resolvedTeamName || "Club"} logo`}
                             className="player-overlay-club-badge"
                           />
-                          <p className="player-overlay-meta">{player.strTeam || selectedTeam || 'Unknown Club'}</p>
+                          <p className="player-overlay-meta">{resolvedTeamName || 'Unknown Club'}</p>
                         </div>
+                        {isCrossScopeSearch ? <p className="player-overlay-meta">{resolvedLeagueName}</p> : null}
                         <button
                           type="button"
                           className="player-overlay-button"
@@ -362,8 +529,8 @@ function Players() {
               })
             ) : (
               <div className="no-players">
-                <p>{searchTerm ? `No players found for "${searchTerm}"` : `No players found for ${selectedTeam}`}</p>
-                <p>{searchTerm ? 'Try a different search term.' : 'Try selecting a different team.'}</p>
+                <p>{searchTerm ? `No players found for "${searchTerm}" across leagues and clubs.` : `No players found for ${selectedTeam}`}</p>
+                <p>{searchTerm ? 'Try a shorter or partial player name.' : 'Try selecting a different team.'}</p>
               </div>
             )}
           </div>

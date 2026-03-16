@@ -48,6 +48,12 @@ const LEAGUE_OPTIONS = [
   { id: 4332, name: "Italian Serie A", country: "Italy", spotlightTeam: "Inter", label: "Serie A" },
   { id: 4331, name: "German Bundesliga", country: "Germany", spotlightTeam: "Bayern Munich", label: "Bundesliga" },
   { id: 4334, name: "French Ligue 1", country: "France", spotlightTeam: "Paris Saint-Germain", label: "Ligue 1" },
+  { id: 4337, name: "Dutch Eredivisie", country: "Netherlands", spotlightTeam: "Ajax", label: "Eredivisie" },
+  { id: 4344, name: "Portuguese Primeira Liga", country: "Portugal", spotlightTeam: "Benfica", label: "Primeira Liga" },
+  { id: 4339, name: "Turkish Super Lig", country: "Turkey", spotlightTeam: "Galatasaray", label: "Super Lig" },
+  { id: 4351, name: "Brazilian Serie A", country: "Brazil", spotlightTeam: "Flamengo", label: "Brazil Serie A" },
+  { id: 4346, name: "American Major League Soccer", country: "United States", spotlightTeam: "Inter Miami", label: "MLS" },
+  { id: 307, name: "Saudi Pro League", country: "Saudi Arabia", spotlightTeam: "Al Nassr", label: "Saudi Pro League" },
   { id: 4480, name: "UEFA Champions League", country: "Europe", spotlightTeam: "Real Madrid", label: "Champions League" },
   { id: 4620, name: "South African Premier Soccer League", country: "South Africa", spotlightTeam: "Mamelodi Sundowns", label: "PSL" },
 ];

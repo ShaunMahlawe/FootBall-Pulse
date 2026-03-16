@@ -148,14 +148,15 @@ h6 {
 .home .date-time {
     border-radius: 6px;
     transition: var(--tran-05);
-    margin-left: 20px;
-    margin-top: 50%;
+    margin-left: 12px;
+    margin-top: 0;
     display: flex;
     align-items: center;
-    padding: 0 20px;
+    padding: 0 12px;
     color: var(--text-color);
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 /* Utility helpers */
@@ -174,6 +175,10 @@ h6 {
 body.dark {
     --body-color: #15171a;
     --sidebar-color: #202226;
+    --surface-1: #202226;
+    --surface-2: #252930;
+    --surface-3: #2c313a;
+    --surface-border: #3f4550;
     --primary-color: #ed1c24;
     --primary-color-light: #32343a;
     --toggle-color: #f4f4f5;
@@ -181,9 +186,9 @@ body.dark {
     --text-muted: #cbd5e1;
     --text-strong: #ffffff;
     --text-inverse: #f8fafc;
-    --border-color: #3f4550;
-    --card-bg: #1f232b;
-    --dashboard-bg: #050505;
+    --border-color: var(--surface-border);
+    --card-bg: var(--surface-1);
+    --dashboard-bg: #1a1d22;
     --dashboard-accent-a: rgba(220, 38, 38, 0.12);
     --dashboard-accent-b: rgba(15, 118, 110, 0.12);
     --dashboard-panel-bg: linear-gradient(180deg, rgba(44, 43, 43, 0.98), rgba(35, 35, 35, 0.98));
@@ -196,8 +201,8 @@ body.dark {
     --dashboard-pill-text: #111827;
     --dashboard-card-chip-bg: rgba(255, 255, 255, 0.08);
     --dashboard-card-chip-text: rgba(255, 255, 255, 0.9);
-    --topbar-bg: #1b1e24;
-    --topbar-border: #3f4550;
+    --topbar-bg: var(--surface-1);
+    --topbar-border: var(--surface-border);
 }
 
 /* Sidebar */
@@ -3417,6 +3422,7 @@ body.dark .player-select {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 24px;
+    margin-top: 32px;
     margin-bottom: 32px;
 }
 
@@ -3731,9 +3737,9 @@ body.dark .comparison-controls {
 .comparison-side-2 .cpc-badge { background: rgba(5, 150, 105, 0.15); color: #059669; }
 
 .cpc-photo-wrap {
-    width: 110px;
-    height: 110px;
-    border-radius: 50%;
+    width: 530px;
+    height: 530px;
+    border-radius: 6%;
     overflow: hidden;
     margin-bottom: 12px;
     border: 3px solid var(--border-color);
@@ -3850,7 +3856,7 @@ body.dark .comparison-controls {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    padding-top: 80px;
+    padding-top: 450px;
     gap: 10px;
 }
 
@@ -4233,6 +4239,42 @@ body.dark .cpc-selector-row select {
     font-size: 13px;
 }
 
+.timeline-status-banner {
+    margin-top: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+
+.timeline-status-banner i {
+    font-size: 16px;
+}
+
+.timeline-status-loading {
+    border-color: rgba(37, 99, 235, 0.35);
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+}
+
+.timeline-status-warning {
+    border-color: rgba(245, 158, 11, 0.38);
+    background: rgba(245, 158, 11, 0.12);
+    color: #b45309;
+}
+
+.timeline-status-error {
+    border-color: rgba(220, 38, 38, 0.4);
+    background: rgba(220, 38, 38, 0.1);
+    color: #b91c1c;
+}
+
 /* Timeline Chart */
 .timeline-chart-container {
     background: var(--card-bg);
@@ -4252,6 +4294,29 @@ body.dark .cpc-selector-row select {
 .timeline-chart {
     height: 400px;
     width: 100%;
+}
+
+.timeline-chart-empty {
+    min-height: 280px;
+    border: 1px dashed var(--border-color);
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 20px;
+    color: var(--text-muted);
+}
+
+.timeline-chart-empty i {
+    font-size: 34px;
+    color: var(--text-color);
+}
+
+.timeline-chart-empty p {
+    margin: 0;
+    max-width: 460px;
+    line-height: 1.5;
 }
 
 .timeline-render-meta {
@@ -4492,6 +4557,70 @@ body.dark .timeline-render-meta,
 body.dark .latest-meta-block small,
 body.dark .dashboard-updated-at {
     color: var(--text-muted);
+}
+
+body.dark .timeline-status-banner {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+body.dark .timeline-status-loading {
+    color: #93c5fd;
+}
+
+body.dark .timeline-status-warning {
+    color: #fbbf24;
+}
+
+body.dark .timeline-status-error {
+    color: #fca5a5;
+}
+
+body.dark .timeline-chart-empty {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Unified dark surfaces aligned to sidebar color */
+body.dark .dashboard-panel,
+body.dark .chart-card,
+body.dark .summary-card,
+body.dark .timeline-controls,
+body.dark .timeline-chart-container,
+body.dark .season-card,
+body.dark .player-modal,
+body.dark .team-modal,
+body.dark .profile-dropdown,
+body.dark .topbar-search-panel,
+body.dark .comparison-player-card,
+body.dark .comparison-insight-card,
+body.dark .comparison-controls,
+body.dark .players-controls,
+body.dark .league-selector,
+body.dark .latest-matches,
+body.dark .team-stats-card,
+body.dark .player-card,
+body.dark .player-details-grid,
+body.dark .team-details-grid {
+    background: var(--surface-1);
+    border-color: var(--surface-border);
+}
+
+body.dark .metric-select,
+body.dark .team-select,
+body.dark .player-search,
+body.dark .timeline-player-picker,
+body.dark .timeline-status-banner,
+body.dark .topbar-search-input-wrap,
+body.dark .topbar-search-item,
+body.dark .detail-item,
+body.dark .stat-item {
+    background: var(--surface-2);
+    border-color: var(--surface-border);
+}
+
+body.dark .topbar-search-item:hover,
+body.dark .topbar-search-item:focus,
+body.dark .timeline-action-btn:hover {
+    background: var(--surface-3);
 }
 
 /* High-end responsive shell overrides */

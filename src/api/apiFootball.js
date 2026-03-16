@@ -28,8 +28,42 @@ const LEAGUE_MAP = {
   "Italian Serie A": { apiId: 135, legacyId: 4332, country: "Italy" },
   "German Bundesliga": { apiId: 78, legacyId: 4331, country: "Germany" },
   "French Ligue 1": { apiId: 61, legacyId: 4334, country: "France" },
+  "Dutch Eredivisie": { apiId: 88, legacyId: 4337, country: "Netherlands" },
+  "Portuguese Primeira Liga": { apiId: 94, legacyId: 4344, country: "Portugal" },
+  "Turkish Super Lig": { apiId: 203, legacyId: 4339, country: "Turkey" },
+  "Brazilian Serie A": { apiId: 71, legacyId: 4351, country: "Brazil" },
+  "American Major League Soccer": { apiId: 253, legacyId: 4346, country: "United States" },
+  "Saudi Pro League": { apiId: 307, legacyId: 307, country: "Saudi Arabia" },
   "UEFA Champions League": { apiId: 2, legacyId: 4480, country: "Europe" },
   "South African Premier Soccer League": { apiId: 288, legacyId: 4620, country: "South Africa" },
+};
+
+const LEAGUE_NAME_ALIASES = {
+  Eredivisie: "Dutch Eredivisie",
+  "Primeira Liga": "Portuguese Primeira Liga",
+  "Super Lig": "Turkish Super Lig",
+  "S\u00fcper Lig": "Turkish Super Lig",
+  "Major League Soccer": "American Major League Soccer",
+  "USA Major League Soccer": "American Major League Soccer",
+  "U.S. Major League Soccer": "American Major League Soccer",
+  MLS: "American Major League Soccer",
+  "Saudi Professional League": "Saudi Pro League",
+  "Saudi Arabian Pro League": "Saudi Pro League",
+  "Saudi Arabia Pro League": "Saudi Pro League",
+  "Saudi Arabia Professional League": "Saudi Pro League",
+  "Roshn Saudi League": "Saudi Pro League",
+  "Roshn Saudi Pro League": "Saudi Pro League",
+};
+
+const LEAGUE_SEARCH_ALIASES = {
+  "American Major League Soccer": ["Major League Soccer", "MLS"],
+  "Saudi Pro League": [
+    "Saudi Professional League",
+    "Saudi Arabian Pro League",
+    "Saudi Arabia Pro League",
+    "Roshn Saudi League",
+    "Roshn Saudi Pro League",
+  ],
 };
 
 const LEGACY_ID_TO_NAME = Object.entries(LEAGUE_MAP).reduce((acc, [name, value]) => {
@@ -137,7 +171,8 @@ function normalizeLeagueName(league) {
     const numeric = Number(league);
     return LEGACY_ID_TO_NAME[numeric] || API_ID_TO_NAME[numeric] || "";
   }
-  return String(league).trim();
+  const normalized = String(league).trim();
+  return LEAGUE_NAME_ALIASES[normalized] || normalized;
 }
 
 function resolveLeagueIds(league) {
@@ -202,6 +237,12 @@ function mapRapidLeague(entry) {
 function mapRapidTeam(entry, fallbackLeagueName = "") {
   const team = entry?.team || entry || {};
   const venue = entry?.venue || {};
+  const resolvedLeagueName =
+    fallbackLeagueName ||
+    entry?.league?.name ||
+    entry?.league?.strLeague ||
+    team?.league ||
+    "";
 
   return {
     idTeam: String(team.id || ""),
@@ -209,7 +250,7 @@ function mapRapidTeam(entry, fallbackLeagueName = "") {
     strTeamBadge: team.logo || "",
     strTeamLogo: team.logo || "",
     strCountry: team.country || "",
-    strLeague: fallbackLeagueName,
+    strLeague: resolvedLeagueName,
     intFormedYear: team.founded || "",
     strStadium: venue.name || "",
     intStadiumCapacity: venue.capacity || "",
@@ -342,8 +383,20 @@ export async function fetchTeams(leagueName = "English Premier League", season =
         return response.map((entry) => mapRapidTeam(entry, league.leagueName || leagueName));
       },
       async () => {
-        const data = await fetchSportsDb("search_all_teams.php", { l: leagueName });
-        return data.teams || [];
+        const searchNames = [
+          normalizeLeagueName(leagueName),
+          ...(LEAGUE_SEARCH_ALIASES[normalizeLeagueName(leagueName)] || []),
+        ].filter(Boolean);
+
+        for (const candidateLeagueName of searchNames) {
+          const data = await fetchSportsDb("search_all_teams.php", { l: candidateLeagueName });
+          const teams = data.teams || [];
+          if (teams.length > 0) {
+            return teams;
+          }
+        }
+
+        return [];
       }
     );
   } catch (error) {
@@ -430,7 +483,14 @@ export async function fetchLeagues() {
           "Italian Serie A",
           "German Bundesliga",
           "French Ligue 1",
+          "Dutch Eredivisie",
+          "Portuguese Primeira Liga",
+          "Turkish Super Lig",
+          "Brazilian Serie A",
+          "American Major League Soccer",
+          "Saudi Pro League",
           "UEFA Champions League",
+          "South African Premier Soccer League",
         ];
 
         preferredOrder.forEach((name) => {
@@ -630,6 +690,7 @@ export async function searchPlayers(playerName) {
             idPlayer: String(player.id || ""),
             strPlayer: player.name || "",
             strTeam: stats.team?.name || "",
+            strLeague: stats.league?.name || "",
             strPosition: stats.games?.position || "",
             strNationality: player.nationality || "",
             dateBorn: player.birth?.date || "",
@@ -643,7 +704,10 @@ export async function searchPlayers(playerName) {
       },
       async () => {
         const data = await fetchSportsDb("searchplayers.php", { p: playerName });
-        return data.player || [];
+        return (data.player || []).map((player) => ({
+          ...player,
+          strLeague: player?.strLeague || player?.strTeam2 || "",
+        }));
       }
     );
   } catch (error) {

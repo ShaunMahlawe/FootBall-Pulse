@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Bar, PolarArea } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -11,7 +12,7 @@ import {
   RadialLinearScale,
   ArcElement,
 } from "chart.js";
-import { fetchPlayers, fetchTeams } from "../api/apiFootball";
+import { clearApiCache, fetchPlayers, fetchTeams } from "../api/apiFootball";
 import Topbar from "../components/Topbar";
 
 ChartJS.register(
@@ -25,8 +26,14 @@ const LEAGUES = [
   { id: 4332, name: "Italian Serie A" },
   { id: 4331, name: "German Bundesliga" },
   { id: 4334, name: "French Ligue 1" },
-  { id: 4346, name: "UEFA Champions League" },
-  { id: 4344, name: "South African Premier Soccer League" },
+  { id: 4337, name: "Dutch Eredivisie" },
+  { id: 4344, name: "Portuguese Primeira Liga" },
+  { id: 4339, name: "Turkish Super Lig" },
+  { id: 4351, name: "Brazilian Serie A" },
+  { id: 4346, name: "American Major League Soccer" },
+  { id: 307, name: "Saudi Pro League" },
+  { id: 4480, name: "UEFA Champions League" },
+  { id: 4620, name: "South African Premier Soccer League" },
 ];
 
 // Deterministic pseudo-random stat per player — stable across re-renders
@@ -73,6 +80,7 @@ function getPhoto(player) {
 }
 
 function Analytics() {
+  const location = useLocation();
   const [league1, setLeague1] = useState(null);
   const [teams1, setTeams1] = useState([]);
   const [loadingTeams1, setLoadingTeams1] = useState(false);
@@ -90,6 +98,30 @@ function Analytics() {
   const [player2, setPlayer2] = useState(null);
 
   const [isDark, setIsDark] = useState(() => document.body.classList.contains("dark"));
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      clearApiCache();
+      setRefreshNonce((value) => value + 1);
+    };
+
+    window.addEventListener("footballpulse:refreshData", handleGlobalRefresh);
+
+    return () => {
+      window.removeEventListener("footballpulse:refreshData", handleGlobalRefresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    const prefillLeague = location.state?.prefillLeague || "";
+    if (!prefillLeague) return;
+
+    const matchedLeague = LEAGUES.find((league) => league.name === prefillLeague);
+    if (!matchedLeague) return;
+
+    setLeague1((current) => (current?.id === matchedLeague.id ? current : matchedLeague));
+  }, [location.state]);
 
   useEffect(() => {
     const observer = new MutationObserver(() => setIsDark(document.body.classList.contains("dark")));
@@ -101,25 +133,25 @@ function Analytics() {
     if (!league1) { setTeams1([]); setTeam1Name(""); setPlayers1([]); setPlayer1(null); return; }
     setLoadingTeams1(true); setTeam1Name(""); setPlayers1([]); setPlayer1(null);
     fetchTeams(league1.name).then((d) => setTeams1(d || [])).finally(() => setLoadingTeams1(false));
-  }, [league1]);
+  }, [league1, refreshNonce]);
 
   useEffect(() => {
     if (!team1Name) { setPlayers1([]); setPlayer1(null); return; }
     setLoadingPlayers1(true); setPlayer1(null);
     fetchPlayers(team1Name).then((d) => setPlayers1((d || []).filter(isEligiblePlayer))).finally(() => setLoadingPlayers1(false));
-  }, [team1Name]);
+  }, [team1Name, refreshNonce]);
 
   useEffect(() => {
     if (!league2) { setTeams2([]); setTeam2Name(""); setPlayers2([]); setPlayer2(null); return; }
     setLoadingTeams2(true); setTeam2Name(""); setPlayers2([]); setPlayer2(null);
     fetchTeams(league2.name).then((d) => setTeams2(d || [])).finally(() => setLoadingTeams2(false));
-  }, [league2]);
+  }, [league2, refreshNonce]);
 
   useEffect(() => {
     if (!team2Name) { setPlayers2([]); setPlayer2(null); return; }
     setLoadingPlayers2(true); setPlayer2(null);
     fetchPlayers(team2Name).then((d) => setPlayers2((d || []).filter(isEligiblePlayer))).finally(() => setLoadingPlayers2(false));
-  }, [team2Name]);
+  }, [team2Name, refreshNonce]);
 
   const stats1 = player1 ? getPlayerStats(player1.idPlayer, player1.strPosition) : null;
   const stats2 = player2 ? getPlayerStats(player2.idPlayer, player2.strPosition) : null;

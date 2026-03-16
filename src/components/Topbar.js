@@ -2,15 +2,61 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { fetchLeagues, searchPlayers, searchTeams } from "../api/apiFootball";
 
-const SUPPORTED_FOOTBALL_LEAGUES = new Set([
+const SUPPORTED_FOOTBALL_LEAGUE_LIST = [
   "English Premier League",
   "Spanish La Liga",
   "Italian Serie A",
   "German Bundesliga",
   "French Ligue 1",
+  "Dutch Eredivisie",
+  "Eredivisie",
+  "Portuguese Primeira Liga",
+  "Primeira Liga",
+  "Turkish Super Lig",
+  "S\u00fcper Lig",
+  "Brazilian Serie A",
+  "American Major League Soccer",
+  "Major League Soccer",
+  "Saudi Pro League",
+  "Saudi Professional League",
+  "Saudi Arabian Pro League",
+  "Saudi Arabia Pro League",
+  "Saudi Arabia Professional League",
+  "Roshn Saudi League",
+  "Roshn Saudi Pro League",
   "UEFA Champions League",
   "South African Premier Soccer League",
-]);
+];
+
+const SUPPORTED_FOOTBALL_LEAGUES = new Set(SUPPORTED_FOOTBALL_LEAGUE_LIST);
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const NORMALIZED_SUPPORTED_LEAGUES = new Set(
+  Array.from(SUPPORTED_FOOTBALL_LEAGUES).map((name) => normalizeText(name))
+);
+
+function isSupportedLeagueName(name) {
+  const normalizedName = normalizeText(name);
+  if (!normalizedName) return false;
+  if (NORMALIZED_SUPPORTED_LEAGUES.has(normalizedName)) return true;
+
+  // Handle practical alias variants from providers.
+  if (normalizedName.includes("major league soccer") || normalizedName === "mls") return true;
+  if (normalizedName.includes("saudi") && (normalizedName.includes("pro league") || normalizedName.includes("professional league") || normalizedName.includes("roshn"))) return true;
+  if (normalizedName.includes("eredivisie")) return true;
+  if (normalizedName.includes("primeira liga")) return true;
+  if (normalizedName.includes("super lig") || normalizedName.includes("superlig")) return true;
+  if (normalizedName.includes("sudafricana") || normalizedName.includes("south african premier soccer")) return true;
+
+  return false;
+}
 
 function Topbar() {
   const location = useLocation();
@@ -114,7 +160,7 @@ function Topbar() {
     const timeoutId = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const [players, clubs, leagues] = await Promise.all([
+        const [playersResult, clubsResult, leaguesResult] = await Promise.allSettled([
           searchPlayers(query),
           searchTeams(query),
           fetchLeagues(),
@@ -122,24 +168,52 @@ function Topbar() {
 
         if (!isActive) return;
 
-        const normalizedQuery = query.toLowerCase();
+        const players = playersResult.status === "fulfilled" ? playersResult.value : [];
+        const clubs = clubsResult.status === "fulfilled" ? clubsResult.value : [];
+        const fetchedLeagues = leaguesResult.status === "fulfilled" ? leaguesResult.value : [];
+        const leagues = fetchedLeagues.length > 0
+          ? fetchedLeagues
+          : SUPPORTED_FOOTBALL_LEAGUE_LIST.map((leagueName, index) => ({
+              idLeague: `fallback-${index + 1}`,
+              strLeague: leagueName,
+              strCountry: "",
+            }));
+
+        const normalizedQuery = normalizeText(query);
         const filteredLeagues = (leagues || []).filter((league) => {
           const leagueName = league.strLeague || "";
-          return SUPPORTED_FOOTBALL_LEAGUES.has(leagueName) && leagueName.toLowerCase().includes(normalizedQuery);
+          return isSupportedLeagueName(leagueName) && normalizeText(leagueName).includes(normalizedQuery);
         });
 
         const filteredClubs = (clubs || []).filter((club) => {
           const leagueName = club?.strLeague || "";
           const sportName = String(club?.strSport || "Soccer").toLowerCase();
-          return SUPPORTED_FOOTBALL_LEAGUES.has(leagueName) && (sportName === "soccer" || sportName === "");
+
+          const teamName = normalizeText(club?.strTeam || "");
+          const leagueText = normalizeText(leagueName);
+          const countryText = normalizeText(club?.strCountry || "");
+          const matchesQuery =
+            teamName.includes(normalizedQuery) ||
+            leagueText.includes(normalizedQuery) ||
+            countryText.includes(normalizedQuery);
+
+          // Some providers omit league name in team search responses; allow those through
+          // if they match the query and are soccer data.
+          const leagueSupportedOrUnknown = !leagueName || isSupportedLeagueName(leagueName);
+
+          return (sportName === "soccer" || sportName === "") && leagueSupportedOrUnknown && matchesQuery;
         });
 
-        const supportedClubNames = new Set(filteredClubs.map((club) => (club?.strTeam || "").toLowerCase()));
+        const supportedClubNames = new Set(filteredClubs.map((club) => normalizeText(club?.strTeam || "")));
         const filteredPlayers = (players || []).filter((player) => {
           const sportName = String(player?.strSport || "Soccer").toLowerCase();
-          const teamName = String(player?.strTeam || "").toLowerCase();
+          const teamName = normalizeText(player?.strTeam || "");
+          const playerName = normalizeText(player?.strPlayer || "");
+          const matchesQuery = playerName.includes(normalizedQuery) || teamName.includes(normalizedQuery);
+
           if (sportName && sportName !== "soccer") return false;
-          if (!teamName) return false;
+          if (!matchesQuery) return false;
+          if (!teamName) return true;
           return supportedClubNames.size === 0 ? true : supportedClubNames.has(teamName);
         });
 
@@ -175,6 +249,18 @@ function Topbar() {
     window.dispatchEvent(new CustomEvent("footballpulse:toggleSidebar"));
   };
 
+  useEffect(() => {
+    const autoRefreshInterval = setInterval(() => {
+      window.dispatchEvent(new CustomEvent("footballpulse:refreshData", {
+        detail: { source: "topbar-auto" },
+      }));
+    }, 2 * 60 * 1000);
+
+    return () => {
+      clearInterval(autoRefreshInterval);
+    };
+  }, []);
+
   const toggleSearchPanel = () => {
     setIsSearchOpen((prev) => !prev);
   };
@@ -191,6 +277,7 @@ function Topbar() {
         state: {
           prefillPlayerSearch: payload?.strPlayer || "",
           preselectTeam: payload?.strTeam || "",
+          preselectLeague: payload?.strLeague || "",
           preselectPlayerId: payload?.idPlayer || "",
           preselectPlayerName: payload?.strPlayer || "",
         },
@@ -203,6 +290,7 @@ function Topbar() {
         state: {
           prefillTeamSearch: payload?.strTeam || "",
           preselectLeague: payload?.strLeague || "",
+          preselectTeam: payload?.strTeam || "",
         },
       });
       return;
