@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Bar, PolarArea } from "react-chartjs-2";
+import { Bar, Pie, PolarArea } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -200,6 +200,38 @@ function Analytics() {
     scales: { r: { ticks: { color: textColor, backdropColor: "transparent", font: { size: 11 } }, grid: { color: gridColor }, pointLabels: { color: textColor, font: { size: 12 } } } },
   };
 
+  const pieLabels = canCompare
+    ? ["Goals", "Assists", "Shots", "Tackles", ...(stats1.saves > 0 || stats2.saves > 0 ? ["Saves"] : [])]
+    : [];
+
+  const pieData1 = canCompare ? {
+    labels: pieLabels,
+    datasets: [{
+      data: [stats1.goals, stats1.assists, stats1.shots, stats1.tackles, ...(stats1.saves > 0 || stats2.saves > 0 ? [stats1.saves] : [])],
+      backgroundColor: ["#dc2626", "#ef4444", "#f87171", "#b91c1c", "#7f1d1d"],
+      borderColor: isDark ? "#1e1e2e" : "#ffffff",
+      borderWidth: 2,
+    }],
+  } : null;
+
+  const pieData2 = canCompare ? {
+    labels: pieLabels,
+    datasets: [{
+      data: [stats2.goals, stats2.assists, stats2.shots, stats2.tackles, ...(stats1.saves > 0 || stats2.saves > 0 ? [stats2.saves] : [])],
+      backgroundColor: ["#059669", "#10b981", "#34d399", "#065f46", "#064e3b"],
+      borderColor: isDark ? "#1e1e2e" : "#ffffff",
+      borderWidth: 2,
+    }],
+  } : null;
+
+  const pieOptions = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "bottom", labels: { color: textColor, padding: 14, font: { size: 12 } } },
+      tooltip: { backgroundColor: tooltipBg, titleColor: "#fff", bodyColor: "#fff", borderColor: "rgba(255,255,255,0.1)", borderWidth: 1 },
+    },
+  };
+
   const insights = canCompare ? [
     { label: "Goals", v1: stats1.goals, v2: stats2.goals, icon: "bx-football" },
     { label: "Assists", v1: stats1.assists, v2: stats2.assists, icon: "bx-transfer" },
@@ -361,6 +393,14 @@ function Analytics() {
             <div className="chart-card">
               <h3>Performance Radar — {player1.strPlayer}</h3>
               <div className="chart-container"><PolarArea data={polarData} options={polarOptions} /></div>
+            </div>
+            <div className="chart-card">
+              <h3>Stat Distribution — {player1.strPlayer}</h3>
+              <div className="chart-container"><Pie data={pieData1} options={pieOptions} /></div>
+            </div>
+            <div className="chart-card">
+              <h3>Stat Distribution — {player2.strPlayer}</h3>
+              <div className="chart-container"><Pie data={pieData2} options={pieOptions} /></div>
             </div>
           </div>
         )}
