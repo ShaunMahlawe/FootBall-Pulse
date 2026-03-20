@@ -563,8 +563,26 @@ export async function fetchLeagueDetails(leagueId) {
         if (!entry) return null;
 
         const mapped = mapRapidLeague(entry);
+        const rapidVisual = mapped?.strBadge || mapped?.strLogo || mapped?.strPoster || "";
+        let fallbackVisual = "";
+
+        // Some leagues (including PSL at times) can miss logo/flag in RapidAPI.
+        // Backfill visuals from TheSportsDB without failing the Rapid response.
+        if (!rapidVisual && league.legacyId) {
+          try {
+            const fallbackData = await fetchSportsDb("lookupleague.php", { id: league.legacyId }, { ttl: DEFAULT_TTL });
+            const fallbackLeague = fallbackData?.leagues?.[0] || null;
+            fallbackVisual = fallbackLeague?.strBadge || fallbackLeague?.strLogo || fallbackLeague?.strPoster || "";
+          } catch (fallbackError) {
+            console.warn("SportsDB badge backfill failed:", fallbackError);
+          }
+        }
+
         return {
           ...mapped,
+          strBadge: mapped?.strBadge || fallbackVisual || "",
+          strLogo: mapped?.strLogo || fallbackVisual || "",
+          strPoster: mapped?.strPoster || fallbackVisual || "",
           strCurrentSeason: String(entry?.seasons?.find((season) => season.current)?.year || ""),
         };
       },

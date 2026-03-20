@@ -62,6 +62,7 @@ function Topbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -69,6 +70,7 @@ function Topbar() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const searchPanelRef = useRef(null);
   const profileDropdownRef = useRef(null);
+  const refreshResetTimeoutRef = useRef(null);
 
   const getPageMeta = () => {
     switch (location.pathname) {
@@ -261,12 +263,36 @@ function Topbar() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (refreshResetTimeoutRef.current) {
+        clearTimeout(refreshResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const toggleSearchPanel = () => {
     setIsSearchOpen((prev) => !prev);
   };
 
   const toggleProfileDropdown = () => {
     setIsProfileOpen((prev) => !prev);
+  };
+
+  const handleManualRefresh = () => {
+    if (refreshResetTimeoutRef.current) {
+      clearTimeout(refreshResetTimeoutRef.current);
+    }
+
+    setIsRefreshing(true);
+    window.dispatchEvent(new CustomEvent("footballpulse:refreshData", {
+      detail: { source: "topbar-manual" },
+    }));
+
+    refreshResetTimeoutRef.current = setTimeout(() => {
+      setIsRefreshing(false);
+      refreshResetTimeoutRef.current = null;
+    }, 1200);
   };
 
   const handleSearchResultClick = (type, payload) => {
@@ -345,6 +371,18 @@ function Topbar() {
       </div>
 
       <div className="flex items-center gap-4 topbar-actions">
+        <button
+          type="button"
+          className={`topbar-refresh-btn ${isRefreshing ? "is-refreshing" : ""}`}
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+          title="Refresh football data"
+          aria-label="Refresh football data"
+        >
+          <i className={`bx ${isRefreshing ? "bx-loader-alt" : "bx-refresh"}`}></i>
+          <span>{isRefreshing ? "Refreshing" : "Refresh"}</span>
+        </button>
+
         <div className="topbar-search" ref={searchPanelRef}>
           <button
             type="button"

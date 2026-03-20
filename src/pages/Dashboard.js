@@ -972,7 +972,7 @@ function Dashboard() {
                         <span>{getMatchMinute(match)}</span>
                       </div>
                       <div className="live-score-body">
-                        <div className="live-team">
+                        <div className="live-team is-home">
                           <img src={getTeamBadge(match.idHomeTeam, match.strHomeTeam, match.strHomeTeamBadge)} alt={match.strHomeTeam} />
                           <span>{match.strHomeTeam}</span>
                         </div>
@@ -981,7 +981,7 @@ function Dashboard() {
                           <span>:</span>
                           <strong>{match.intAwayScore || 0}</strong>
                         </div>
-                        <div className="live-team">
+                        <div className="live-team is-away">
                           <img src={getTeamBadge(match.idAwayTeam, match.strAwayTeam, match.strAwayTeamBadge)} alt={match.strAwayTeam} />
                           <span>{match.strAwayTeam}</span>
                         </div>
